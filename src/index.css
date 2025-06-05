@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Elimina fondo, bordes y sombra del popup original de Leaflet */
+.leaflet-popup-content-wrapper {
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+  }
+  
+  /* Elimina padding interno del contenido */
+  .leaflet-popup-content {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  /* Elimina la “punta” del popup */
+  .leaflet-popup-tip-container,
+  .leaflet-popup-tip {
+    display: none !important;
+  }
+  
+  /* Elimina botón de cerrar popup */
+  .leaflet-popup-close-button {
+    display: none !important;
+  }
+  
+  /* Anula el estilo visual por defecto del InfoWindow */
+  .gm-style .gm-style-iw-c {
+    padding: 0px !important;
+    max-width: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background-color: transparent !important;
+  }
+
+  .gm-style .gm-style-iw-d {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .gm-style-iw button[aria-label="Close"] {
+    display: none !important;
+  }
+
+  .gm-style-iw + div {display: none;}
+  

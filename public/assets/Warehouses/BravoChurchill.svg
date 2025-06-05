@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" preserveAspectRatio="xMidYMid meet">
+  <rect x="50" y="50" width="400" height="200" stroke="#B3B4B7" stroke-width="2" fill="none" />
+  <text x="150" y="150" font-family="Arial" font-size="20" fill="#000">Storage Area 1</text>
+
+  <rect x="500" y="50" width="250" height="150" stroke="#B3B4B7" stroke-width="2" fill="none" />
+  <text x="570" y="120" font-family="Arial" font-size="20" fill="#000">Office 1</text>
+
+  <rect x="500" y="250" width="250" height="150" stroke="#B3B4B7" stroke-width="2" fill="none" />
+  <text x="570" y="320" font-family="Arial" font-size="20" fill="#000">Office 2</text>
+
+  <rect x="50" y="300" width="400" height="200" stroke="#B3B4B7" stroke-width="2" fill="none" />
+  <text x="150" y="400" font-family="Arial" font-size="20" fill="#000">Storage Area 2</text>
+
+  <rect x="800" y="50" width="300" height="400" stroke="#B3B4B7" stroke-width="2" fill="none" />
+  <text x="880" y="250" font-family="Arial" font-size="20" fill="#000">Main Warehouse</text>
+
+  <rect x="50" y="550" width="400" height="150" stroke="#B3B4B7" stroke-width="2" fill="none" />
+  <text x="180" y="620" font-family="Arial" font-size="20" fill="#000">Security Room</text>
+
+  <rect x="500" y="550" width="250" height="150" stroke="#B3B4B7" stroke-width="2" fill="none" />
+  <text x="570" y="620" font-family="Arial" font-size="20" fill="#000">Cold Room</text>
+</svg>
