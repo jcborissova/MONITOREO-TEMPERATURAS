@@ -5,7 +5,7 @@ import {
   InfoWindow
 } from "@vis.gl/react-google-maps";
 import { WeatherContext } from "../../../context/WeatherContext";
-import { bravoLocations } from "../../../data/BravoLocations";
+import { locations } from "../../../data/Locations";
 import WarehousePopup from "./WarehousePopup";
 
 // Límites de República Dominicana
@@ -39,7 +39,7 @@ const MainMap: React.FC = () => {
         restriction={{ latLngBounds: mapBounds, strictBounds: true }}
         style={{ width: "100%", height: "100%" }}
       >
-        {bravoLocations.map((warehouse, index) => {
+        {locations.map((warehouse, index) => {
           const position = {
             lat: warehouse.position[0],
             lng: warehouse.position[1]
@@ -53,7 +53,7 @@ const MainMap: React.FC = () => {
                 onClick={() => setSelected(index)}
               >
                 <img
-                  src="/assets/images/bravo.png"
+                  src="/assets/images/agrofem.png"
                   alt={warehouse.name}
                   className="w-12 h-12 rounded-full border-2 border-white shadow-md object-contain bg-white"
                 />

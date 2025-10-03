@@ -39,7 +39,7 @@ const WarehousePopup: React.FC<Props> = ({
       {/* Encabezado */}
       <div className="flex items-center gap-3 mb-3 pr-8">
         <img
-          src="/assets/images/bravo.png"
+          src="/assets/images/agrofem.png"
           alt="Logo Bravo"
           className="w-9 h-9 rounded-full border shadow object-cover"
         />

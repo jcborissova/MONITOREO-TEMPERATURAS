@@ -1,17 +1,36 @@
+// src/components/warehouse/RoomIndicator.tsx
+
 import React from "react";
 import {
   DropletIcon,
   GaugeIcon,
   Thermometer,
   ChevronRight,
+  Server,
+  Activity,
+  Globe,
 } from "lucide-react";
 import { type Room } from "../../../types/types";
 
 interface Props {
-  room: Room;
+  room: Room & {
+    serverHealth?: {
+      status: string;
+      timestamp: string;
+      uptime: number; // en segundos
+      environment: string;
+    };
+  };
   onExpand?: () => void;
   mode?: "summary" | "detail";
 }
+
+const formatUptime = (seconds: number): string => {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h`;
+  return `${Math.floor(seconds / 86400)} d`;
+};
 
 const RoomIndicator: React.FC<Props> = ({ room, onExpand, mode = "summary" }) => {
   const badgeColor = room.alert
@@ -22,6 +41,7 @@ const RoomIndicator: React.FC<Props> = ({ room, onExpand, mode = "summary" }) =>
 
   const renderDetails = (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+      {/* MÉTRICAS PRINCIPALES */}
       <div className="mt-2 text-sm space-y-2">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-700">
           <DropletIcon className="w-4 h-4 text-blue-400" />
@@ -31,10 +51,42 @@ const RoomIndicator: React.FC<Props> = ({ room, onExpand, mode = "summary" }) =>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-700">
           <GaugeIcon className="w-4 h-4 text-purple-400" />
           <span className="text-xs">Productividad:</span>
-          <span className="font-medium ml-auto">{room.productivity ?? "--"}%</span>
+          <span className="font-medium ml-auto">
+            {room.productivity ?? "--"}%
+          </span>
         </div>
       </div>
 
+      {/* DATOS DEL SERVIDOR */}
+      {room.serverHealth && (
+        <div className="mt-3 bg-gray-50 border rounded-md p-2 text-xs space-y-2">
+          <p className="text-gray-500 font-semibold mb-1">Estado del Servidor</p>
+          <div className="flex items-center gap-2 text-gray-600">
+            <Server className="w-3 h-3 text-green-500" />
+            <span className="font-medium">{room.serverHealth.status}</span>
+          </div>
+          <div className="flex items-center gap-2 text-gray-600">
+            <Activity className="w-3 h-3 text-blue-500" />
+            <span>Uptime: {formatUptime(room.serverHealth.uptime)}</span>
+          </div>
+          <div className="flex items-center gap-2 text-gray-600">
+            <Globe className="w-3 h-3 text-gray-500" />
+            <span>Entorno: {room.serverHealth.environment}</span>
+          </div>
+          <p className="text-gray-400">
+            {new Date(room.serverHealth.timestamp).toLocaleString("es-DO", {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+              day: "2-digit",
+              month: "2-digit",
+              year: "2-digit",
+            })}
+          </p>
+        </div>
+      )}
+
+      {/* HISTÓRICO */}
       {room.history?.length && (
         <div className="mt-3 bg-gray-50 border rounded-md p-2 text-xs max-h-40 overflow-y-auto space-y-1">
           <p className="text-gray-500 font-semibold mb-1">Historial</p>
@@ -76,6 +128,14 @@ const RoomIndicator: React.FC<Props> = ({ room, onExpand, mode = "summary" }) =>
         <span className="text-xs">Productividad:</span>
         <span className="font-medium ml-auto">{room.productivity ?? "--"}%</span>
       </div>
+
+      {/* Estado resumido del servidor */}
+      {room.serverHealth && (
+        <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+          <Server className="w-3 h-3 text-green-500" />
+          <span>{room.serverHealth.status}</span>
+        </div>
+      )}
     </div>
   );
 

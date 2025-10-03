@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// src/components/ReportModal.tsx
+
 import React, { useState } from "react";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
@@ -10,10 +13,18 @@ import {
   FileText,
   X,
   Download,
+  Server,
 } from "lucide-react";
 
 interface Props {
-  rooms: Room[];
+  rooms: (Room & {
+    serverHealth?: {
+      status: string;
+      timestamp: string;
+      uptime: number;
+      environment: string;
+    };
+  })[];
   warehouseName: string;
   onClose: () => void;
 }
@@ -24,6 +35,7 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
     humidity: true,
     productivity: true,
     history: false,
+    serverHealth: true,
   });
 
   const toggleOption = (key: keyof typeof options) => {
@@ -31,7 +43,11 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
   };
 
   const isAnyOptionSelected =
-    options.temperature || options.humidity || options.productivity || options.history;
+    options.temperature ||
+    options.humidity ||
+    options.productivity ||
+    options.history ||
+    options.serverHealth;
 
   const handleDownload = () => {
     const summaryData = rooms.map((room) => {
@@ -41,6 +57,13 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
       if (options.temperature) entry.Temperatura = `${room.temperature} °C`;
       if (options.humidity) entry.Humedad = room.humidity != null ? `${room.humidity}%` : "--";
       if (options.productivity) entry.Productividad = room.productivity != null ? `${room.productivity}%` : "--";
+
+      if (options.serverHealth && room.serverHealth) {
+        entry.Servidor = room.serverHealth.status;
+        entry.Uptime = `${Math.floor(room.serverHealth.uptime / 60)} min`;
+        entry.Entorno = room.serverHealth.environment;
+        entry.Check = new Date(room.serverHealth.timestamp).toLocaleString("es-DO");
+      }
 
       entry.Estado = room.alert ? "Crítico" : room.warning ? "Advertencia" : "Normal";
       entry.Actualizado = new Date(room.updatedAt).toLocaleString("es-DO");
@@ -104,8 +127,8 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
             Selecciona los datos que deseas incluir
           </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-3">
-            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 transition cursor-pointer border border-gray-100">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 border cursor-pointer">
               <input
                 type="checkbox"
                 checked={options.temperature}
@@ -114,7 +137,7 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
               <Thermometer className="w-5 h-5 text-red-500" />
               <span className="truncate">Temperatura</span>
             </label>
-            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 transition cursor-pointer border border-gray-100">
+            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 border cursor-pointer">
               <input
                 type="checkbox"
                 checked={options.humidity}
@@ -123,7 +146,7 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
               <Droplet className="w-5 h-5 text-blue-500" />
               <span className="truncate">Humedad</span>
             </label>
-            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 transition cursor-pointer border border-gray-100">
+            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 border cursor-pointer">
               <input
                 type="checkbox"
                 checked={options.productivity}
@@ -132,7 +155,16 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
               <Gauge className="w-5 h-5 text-purple-500" />
               <span className="truncate">Productividad</span>
             </label>
-            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 transition cursor-pointer border border-gray-100 sm:col-span-2">
+            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 border cursor-pointer">
+              <input
+                type="checkbox"
+                checked={options.serverHealth}
+                onChange={() => toggleOption("serverHealth")}
+              />
+              <Server className="w-5 h-5 text-green-600" />
+              <span className="truncate">Estado del Servidor</span>
+            </label>
+            <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 border cursor-pointer sm:col-span-2">
               <input
                 type="checkbox"
                 checked={options.history}
@@ -156,9 +188,10 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
             onClick={handleDownload}
             disabled={!isAnyOptionSelected}
             className={`w-full sm:w-auto px-5 py-2.5 rounded-md text-sm font-medium flex items-center justify-center gap-2 shadow transition
-              ${isAnyOptionSelected
-                ? "bg-blue-600 text-white hover:bg-blue-700"
-                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              ${
+                isAnyOptionSelected
+                  ? "bg-blue-600 text-white hover:bg-blue-700"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
               }`}
           >
             <Download className="w-5 h-5" />

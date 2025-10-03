@@ -5,7 +5,7 @@ import {
   MinusIcon,
   PlusIcon
 } from "@heroicons/react/24/solid";
-import { bravoLocations } from "../../../data/BravoLocations";
+import { locations } from "../../../data/Locations";
 import { WeatherContext } from "../../../context/WeatherContext";
 
 const WarehouseList: React.FC = () => {
@@ -80,7 +80,7 @@ const WarehouseList: React.FC = () => {
     };
   };
 
-  const filteredWarehouses = bravoLocations.filter((w) =>
+  const filteredWarehouses = locations.filter((w) =>
     w.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -98,12 +98,12 @@ const WarehouseList: React.FC = () => {
         >
           <div className="flex items-center gap-3 pr-8 w-full">
             <img
-              src="/assets/images/bravo.png"
+              src="/assets/images/agrofem.png"
               alt="Bravo Logo"
               className="w-8 h-8 rounded-full object-contain border"
             />
             <span className="text-sm sm:text-base font-bold text-gray-800 whitespace-nowrap truncate">
-              Supermercados Bravo
+              Almacenes
             </span>
           </div>
           <button
