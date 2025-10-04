@@ -1,0 +1,11 @@
+[[redirects]]
+  from = "/api/*"
+  to = "http://155.138.193.120:8080/:splat"
+  status = 200
+  force = true
+
+# Para apps SPA (React/TS con router)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
