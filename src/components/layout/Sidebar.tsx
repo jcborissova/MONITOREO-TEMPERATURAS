@@ -1,4 +1,3 @@
-// src/components/layout/Sidebar.tsx
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -19,19 +18,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    // 1. Limpiar token y usuario
     AuthService.logout();
-
-    // 2. Redirigir a login
     navigate("/login");
-
-    // (Opcional) 3. Forzar recarga para resetear estados globales
-    // window.location.reload();
   };
 
   return (
     <aside
-      className={`fixed top-0 left-0 h-screen ${
+      className={`h-screen ${
         isOpen ? "w-64" : "w-20"
       } bg-white border-r border-gray-200 shadow-sm flex flex-col transition-all duration-300 relative`}
     >
@@ -53,9 +46,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
         <img
           src="/assets/WHLOGO.png"
           alt="Warehouse Logo"
-          className={`transition-all duration-300 rounded-full shadow-sm ${
-            isOpen ? "w-12 h-12" : "w-12 h-12"
-          }`}
+          className="w-12 h-12 rounded-full shadow-sm"
         />
         {isOpen && (
           <span className="text-xl font-semibold text-gray-800 truncate leading-tight">
@@ -94,7 +85,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
   );
 };
 
-// SidebarLink reusable
 const SidebarLink: React.FC<{
   to: string;
   label: string;
@@ -105,9 +95,7 @@ const SidebarLink: React.FC<{
     to={to}
     className={({ isActive }) =>
       `flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
-        isActive
-          ? "bg-red-50 text-red-600"
-          : "text-gray-700 hover:bg-gray-100"
+        isActive ? "bg-red-50 text-red-600" : "text-gray-700 hover:bg-gray-100"
       }`
     }
   >

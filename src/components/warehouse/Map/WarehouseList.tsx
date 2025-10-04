@@ -1,9 +1,9 @@
-import React, { useContext, useState, useRef, useEffect } from "react";
+import React, { useContext, useState, useRef, useEffect, useCallback } from "react";
 import {
   ChevronRightIcon,
   MagnifyingGlassIcon,
   MinusIcon,
-  PlusIcon
+  PlusIcon,
 } from "@heroicons/react/24/solid";
 import { locations } from "../../../data/Locations";
 import { WeatherContext } from "../../../context/WeatherContext";
@@ -12,72 +12,59 @@ const WarehouseList: React.FC = () => {
   const { openWarehousePlan } = useContext(WeatherContext);
   const [searchQuery, setSearchQuery] = useState("");
   const [isMinimized, setIsMinimized] = useState(false);
+
   const cardRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const pos = useRef({ x: 0, y: 0, left: 20, top: 80 });
-
   const [style, setStyle] = useState({ left: 20, top: 80 });
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragging.current || !cardRef.current) return;
-  
-      const dx = e.clientX - pos.current.x;
-      const dy = e.clientY - pos.current.y;
-  
-      const newLeft = pos.current.left + dx;
-      const newTop = pos.current.top + dy;
-  
-      adjustPosition(newLeft, newTop);
-    };
-  
-    const handleResize = () => {
-      // Reajusta posición al cambiar tamaño de pantalla
-      const { left, top } = style;
-      adjustPosition(left, top);
-    };
-  
-    const stopDrag = () => {
-      dragging.current = false;
-    };
-  
-    const adjustPosition = (newLeft: number, newTop: number) => {
-      const panel = cardRef.current;
-      if (!panel) return;
-  
-      const panelRect = panel.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-  
-      const maxLeft = vw - panelRect.width - 8;
-      const maxTop = vh - panelRect.height - 8;
-  
-      const clampedLeft = Math.min(Math.max(8, newLeft), maxLeft);
-      const clampedTop = Math.min(Math.max(8, newTop), maxTop);
-  
-      setStyle({ left: clampedLeft, top: clampedTop });
-    };
-  
-    window.addEventListener("resize", handleResize);
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", stopDrag);
-  
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", stopDrag);
-    };
-  }, [style]);  
+  /** Ajustar posición con límites */
+  const adjustPosition = useCallback((newLeft: number, newTop: number) => {
+    const panel = cardRef.current;
+    if (!panel) return;
 
-  const startDrag = (e: React.MouseEvent) => {
-    if (!cardRef.current) return;
-    dragging.current = true;
-    pos.current = {
-      x: e.clientX,
-      y: e.clientY,
-      left: style.left,
-      top: style.top
+    const rect = panel.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    const maxLeft = vw - rect.width - 8;
+    const maxTop = vh - rect.height - 8;
+
+    setStyle({
+      left: Math.min(Math.max(8, newLeft), maxLeft),
+      top: Math.min(Math.max(8, newTop), maxTop),
+    });
+  }, []);
+
+  /** Listeners drag */
+  useEffect(() => {
+    const move = (e: MouseEvent | TouchEvent) => {
+      if (!dragging.current) return;
+      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+      const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+      const dx = clientX - pos.current.x;
+      const dy = clientY - pos.current.y;
+      adjustPosition(pos.current.left + dx, pos.current.top + dy);
     };
+
+    const stop = () => (dragging.current = false);
+
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", stop);
+    document.addEventListener("touchmove", move);
+    document.addEventListener("touchend", stop);
+
+    return () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", stop);
+      document.removeEventListener("touchmove", move);
+      document.removeEventListener("touchend", stop);
+    };
+  }, [adjustPosition]);
+
+  const startDrag = (x: number, y: number) => {
+    dragging.current = true;
+    pos.current = { x, y, left: style.left, top: style.top };
   };
 
   const filteredWarehouses = locations.filter((w) =>
@@ -87,27 +74,29 @@ const WarehouseList: React.FC = () => {
   return (
     <div
       ref={cardRef}
-      className="absolute z-[20] w-[92vw] max-w-sm sm:w-auto sm:max-w-xs"
+      className="absolute z-20 w-[85vw] max-w-[280px] sm:max-w-xs"
       style={{ ...style, position: "absolute", touchAction: "none" }}
     >
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-        {/* Header */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden max-h-[50vh] sm:max-h-[70vh] flex flex-col">
+        {/* Header draggable */}
         <div
-          onMouseDown={startDrag}
-          className="relative flex items-center p-3 border-b bg-blue-50 cursor-move"
+          onMouseDown={(e) => startDrag(e.clientX, e.clientY)}
+          onTouchStart={(e) => startDrag(e.touches[0].clientX, e.touches[0].clientY)}
+          className="relative flex items-center p-3 border-b bg-blue-50 cursor-move select-none"
         >
           <div className="flex items-center gap-3 pr-8 w-full">
             <img
               src="/assets/images/agrofem.png"
-              alt="Bravo Logo"
+              alt="Agrofem Logo"
               className="w-8 h-8 rounded-full object-contain border"
             />
-            <span className="text-sm sm:text-base font-bold text-gray-800 whitespace-nowrap truncate">
+            <span className="text-sm sm:text-base font-bold text-gray-800 truncate">
               Almacenes
             </span>
           </div>
           <button
             onClick={() => setIsMinimized(!isMinimized)}
+            aria-label={isMinimized ? "Expandir lista" : "Minimizar lista"}
             className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-blue-600 transition"
           >
             {isMinimized ? (
@@ -120,7 +109,7 @@ const WarehouseList: React.FC = () => {
 
         {/* Contenido */}
         {!isMinimized && (
-          <div className="p-3 space-y-3">
+          <div className="p-3 space-y-3 flex-1 overflow-y-auto">
             {/* Buscador */}
             <div className="relative">
               <input
@@ -130,11 +119,11 @@ const WarehouseList: React.FC = () => {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
-              <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute right-3 top-2.5" />
+              <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute right-3 top-2.5 pointer-events-none" />
             </div>
 
             {/* Lista */}
-            <ul className="space-y-2 max-h-[35vh] overflow-y-auto pr-1">
+            <ul className="space-y-2">
               {filteredWarehouses.length > 0 ? (
                 filteredWarehouses.map((warehouse, index) => (
                   <li

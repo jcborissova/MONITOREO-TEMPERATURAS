@@ -4,7 +4,7 @@
   status = 200
   force = true
 
-# Para apps SPA (React/TS con router)
+# Para apps SPA (React Router)
 [[redirects]]
   from = "/*"
   to = "/index.html"

@@ -1,4 +1,3 @@
-// src/components/layout/Layout.tsx
 import React, { useState } from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
@@ -14,9 +13,9 @@ const Layout: React.FC = () => {
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar isOpen={isSidebarOpen} toggleSidebar={toggleSidebar} />
-      <div className={`flex flex-col flex-grow transition-all duration-300`}>
+      <div className="flex flex-col flex-grow transition-all duration-300">
         <Header isSidebarOpen={isSidebarOpen} />
-        <main className="flex-grow overflow-auto p-4 mt-16">
+        <main className="flex-grow overflow-auto p-4 mt-4 sm:mt-6 w-100">
           <Outlet />
         </main>
       </div>

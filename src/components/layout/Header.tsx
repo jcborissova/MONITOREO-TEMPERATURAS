@@ -1,4 +1,3 @@
-// src/components/layout/Header.tsx
 import React, { useState, useRef, useEffect } from "react";
 import {
   UserCircleIcon,
@@ -36,11 +35,10 @@ const notifications = [
   },
 ];
 
-const Header: React.FC<HeaderProps> = ({ isSidebarOpen }) => {
+const Header: React.FC<HeaderProps> = () => {
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // cerrar dropdown al hacer click fuera
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -53,17 +51,14 @@ const Header: React.FC<HeaderProps> = ({ isSidebarOpen }) => {
 
   return (
     <header
-      className={`fixed top-0 h-16 flex items-center justify-between 
-        bg-white/90 backdrop-blur-sm
-        border-b border-gray-200 shadow-sm px-4 sm:px-6 z-50 transition-all duration-300
-        ${isSidebarOpen ? "left-64 w-[calc(100%-16rem)]" : "left-20 w-[calc(100%-5rem)]"}`}
+      className="h-20 flex items-center justify-between 
+        bg-white/90 backdrop-blur-sm border-b border-gray-200 shadow-sm 
+        px-4 sm:px-6 z-50 transition-all duration-300 w-full"
     >
-      {/* Título */}
       <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-red-600 whitespace-nowrap">
         Warehouse Monitoring
       </h1>
 
-      {/* Acciones */}
       <div className="flex items-center gap-6 relative" ref={dropdownRef}>
         {/* Notificaciones */}
         <div className="relative flex items-center">
@@ -72,32 +67,30 @@ const Header: React.FC<HeaderProps> = ({ isSidebarOpen }) => {
             className="relative flex items-center justify-center rounded-full hover:bg-gray-100 p-2 transition"
           >
             <BellIcon className="w-6 h-6 text-gray-700" />
-            {/* Badge */}
             <span className="absolute top-1 right-1 bg-red-600 text-white text-[10px] font-semibold rounded-full px-1 shadow">
               {notifications.length}
             </span>
           </button>
 
-          {/* Dropdown elegante */}
           {open && (
             <div
-              className="absolute right-0 top-full mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-100 z-50
+              className="absolute right-0 top-full mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-100 z-50
               transform transition-all duration-200 origin-top animate-slideDown"
             >
               <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                 <span className="font-semibold text-gray-700 text-sm">Notificaciones</span>
                 <button className="text-xs text-blue-600 hover:underline font-medium">
-                  Marcar todas como leídas
+                  Marcar todas
                 </button>
               </div>
-              <ul className="divide-y divide-gray-100 max-h-[400px] overflow-y-auto">
+              <ul className="divide-y divide-gray-100 max-h-[300px] overflow-y-auto">
                 {notifications.map((n, idx) => (
                   <li
                     key={idx}
-                    className="p-4 flex items-start gap-3 hover:bg-gray-50 cursor-pointer transition"
+                    className="p-3 flex items-start gap-3 hover:bg-gray-50 cursor-pointer transition"
                   >
                     <div
-                      className={`flex items-center justify-center w-10 h-10 rounded-full ${
+                      className={`flex items-center justify-center w-8 h-8 rounded-full ${
                         n.type === "critical"
                           ? "bg-red-100"
                           : n.type === "warning"
@@ -117,8 +110,8 @@ const Header: React.FC<HeaderProps> = ({ isSidebarOpen }) => {
                   </li>
                 ))}
               </ul>
-              <div className="px-4 py-3 text-center text-sm text-blue-600 hover:underline border-t cursor-pointer">
-                Ver todas las notificaciones
+              <div className="px-4 py-2 text-center text-sm text-blue-600 hover:underline border-t cursor-pointer">
+                Ver todas
               </div>
             </div>
           )}
