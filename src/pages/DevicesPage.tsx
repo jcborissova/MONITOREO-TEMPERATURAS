@@ -1,12 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { useContext, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   EyeIcon,
   Cog6ToothIcon,
   Battery50Icon,
   ArrowPathIcon,
-  InformationCircleIcon,
 } from "@heroicons/react/24/outline";
 import PageContainer from "../components/layout/PageContainer";
 import AlertThresholdModal from "../components/devices/AlertThresholdModal";
@@ -21,7 +19,6 @@ interface DeviceThresholds {
 }
 
 const DevicesPage: React.FC = () => {
-  const navigate = useNavigate();
   const { allRooms, refreshData } = useContext(WeatherContext);
 
   const [selectedDevice, setSelectedDevice] = useState<Room | null>(null);

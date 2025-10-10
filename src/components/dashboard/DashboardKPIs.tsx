@@ -11,7 +11,6 @@ interface DashboardKPIsProps {
 const DashboardKPIs: React.FC<DashboardKPIsProps> = ({ rooms }) => {
   const totalWarehouses = 12;
   const criticalAlerts = rooms.filter((r) => r.alert).length;
-  const warningAlerts = rooms.filter((r) => r.warning).length;
 
   const avgProductivity =
     rooms.length > 0

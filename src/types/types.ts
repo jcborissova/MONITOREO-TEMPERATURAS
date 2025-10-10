@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/types/types.ts
 
   export interface Measure {
@@ -9,6 +10,7 @@
   
   // src/types/types.ts
   export interface Room {
+    [x: string]: any;
     name: string;
     top: string;
     left: string;
@@ -21,6 +23,7 @@
     history?: Measure[];
     lat?: number;
     lng?: number;
+    imageUrl? : string;
   }
   
   export interface ClimateData {
