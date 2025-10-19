@@ -32,7 +32,7 @@ interface Props {
 const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
   const [options, setOptions] = useState({
     temperature: true,
-    humidity: true,
+    humedity: true,
     productivity: true,
     history: false,
     serverHealth: true,
@@ -44,7 +44,7 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
 
   const isAnyOptionSelected =
     options.temperature ||
-    options.humidity ||
+    options.humedity ||
     options.productivity ||
     options.history ||
     options.serverHealth;
@@ -55,7 +55,7 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
       const entry: any = { Zona: room.name };
 
       if (options.temperature) entry.Temperatura = `${room.temperature} °C`;
-      if (options.humidity) entry.Humedad = room.humidity != null ? `${room.humidity}%` : "--";
+      if (options.humedity) entry.Humedad = room.humedity != null ? `${room.humedity}%` : "--";
       if (options.productivity) entry.Productividad = room.productivity != null ? `${room.productivity}%` : "--";
 
       if (options.serverHealth && room.serverHealth) {
@@ -81,7 +81,7 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
             room.history.map((h) => ({
               Fecha: new Date(h.timestamp).toLocaleString("es-DO"),
               Temperatura: `${h.temperature} °C`,
-              Humedad: h.humidity != null ? `${h.humidity}%` : "--",
+              Humedad: h.humedity != null ? `${h.humedity}%` : "--",
               Productividad: h.productivity != null ? `${h.productivity}%` : "--",
             }))
           );
@@ -140,8 +140,8 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
             <label className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 border cursor-pointer">
               <input
                 type="checkbox"
-                checked={options.humidity}
-                onChange={() => toggleOption("humidity")}
+                checked={options.humedity}
+                onChange={() => toggleOption("humedity")}
               />
               <Droplet className="w-5 h-5 text-blue-500" />
               <span className="truncate">Humedad</span>

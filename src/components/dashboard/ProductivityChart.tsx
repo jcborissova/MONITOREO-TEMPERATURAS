@@ -17,7 +17,7 @@ interface ProductivityChartProps {
 
 const ProductivityChart: React.FC<ProductivityChartProps> = ({ rooms }) => {
   const data = rooms.map((r) => ({
-    name: r.name,
+    name: r.deviceName,
     productividad: r.productivity ?? 0, // ✅ fallback seguro
   }));
 

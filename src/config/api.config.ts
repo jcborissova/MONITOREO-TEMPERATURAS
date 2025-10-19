@@ -17,4 +17,6 @@ export const API_ENDPOINTS = {
 
   // Health
   HEALTH: "/health",
+  SENSORS: "/sensors",
+  SENSOR_HISTORY: (devEUI: string) => `/sensors/${devEUI}`,
 };

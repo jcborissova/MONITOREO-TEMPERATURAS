@@ -2,7 +2,7 @@ import React, { useContext } from "react";
 import { WeatherContext } from "../context/WeatherContext";
 import DashboardKPIs from "../components/dashboard/DashboardKPIs";
 import ProductivityChart from "../components/dashboard/ProductivityChart";
-import HumidityChart from "../components/dashboard/HumidityChart";
+import HumedityChart from "../components/dashboard/HumedityChart";
 import StatusPieChart from "../components/dashboard/StatusPieChart";
 import ZonesTable from "../components/dashboard/ZonesTable";
 import Card from "../components/dashboard/Card";
@@ -44,7 +44,7 @@ const Dashboard: React.FC = () => {
             </Card>
 
             <Card title="Niveles de Humedad">
-              <HumidityChart />
+              <HumedityChart />
             </Card>
           </div>
 

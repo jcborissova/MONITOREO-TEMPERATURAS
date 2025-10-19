@@ -46,7 +46,7 @@ const RoomIndicator: React.FC<Props> = ({ room, onExpand, mode = "summary" }) =>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-700">
           <DropletIcon className="w-4 h-4 text-blue-400" />
           <span className="text-xs">Humedad:</span>
-          <span className="font-medium ml-auto">{room.humidity ?? "--"}%</span>
+          <span className="font-medium ml-auto">{room.humedity ?? "--"}%</span>
         </div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-700">
           <GaugeIcon className="w-4 h-4 text-purple-400" />
@@ -104,7 +104,7 @@ const RoomIndicator: React.FC<Props> = ({ room, onExpand, mode = "summary" }) =>
                   <Thermometer className="w-3 h-3 text-red-400" />
                   {entry.temperature}°C
                   <DropletIcon className="w-3 h-3 text-blue-400" />
-                  {entry.humidity ?? "--"}%
+                  {entry.humedity ?? "--"}%
                   <GaugeIcon className="w-3 h-3 text-purple-400" />
                   {entry.productivity ?? "--"}%
                 </div>
@@ -121,7 +121,7 @@ const RoomIndicator: React.FC<Props> = ({ room, onExpand, mode = "summary" }) =>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-700">
         <DropletIcon className="w-4 h-4 text-blue-400" />
         <span className="text-xs">Humedad:</span>
-        <span className="font-medium ml-auto">{room.humidity ?? "--"}%</span>
+        <span className="font-medium ml-auto">{room.humedity ?? "--"}%</span>
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-gray-700">
         <GaugeIcon className="w-4 h-4 text-purple-400" />

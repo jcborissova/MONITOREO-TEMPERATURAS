@@ -23,13 +23,13 @@ const ZonesTable: React.FC<ZonesTableProps> = ({ rooms }) => {
           {rooms.map((room, idx) => (
             <tr key={idx} className="border-t hover:bg-gray-50">
               <td className="px-2 sm:px-4 py-2 max-w-[120px] truncate">
-                {room.name}
+                {room.deviceName}
               </td>
               <td className="px-2 sm:px-4 py-2 hidden sm:table-cell">
                 {room.temperature ?? "N/A"} °C
               </td>
               <td className="px-2 sm:px-4 py-2 hidden sm:table-cell">
-                {room.humidity ?? "N/A"}%
+                {room.humedity ?? "N/A"}%
               </td>
               <td className="px-2 sm:px-4 py-2 hidden md:table-cell">
                 {room.productivity ?? "N/A"}%

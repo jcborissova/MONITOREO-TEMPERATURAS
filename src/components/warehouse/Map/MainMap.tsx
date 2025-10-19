@@ -5,7 +5,6 @@ import {
   InfoWindow
 } from "@vis.gl/react-google-maps";
 import { WeatherContext } from "../../../context/WeatherContext";
-import { locations } from "../../../data/Locations";
 import WarehousePopup from "./WarehousePopup";
 
 // Límites de República Dominicana
@@ -13,17 +12,16 @@ const mapBounds = {
   north: 20.1,
   south: 17.3,
   west: -72.0,
-  east: -68.0
+  east: -68.0,
 };
 
 const MainMap: React.FC = () => {
-  const { openWarehousePlan } = useContext(WeatherContext);
+  const { allRooms = [], openWarehousePlan } = useContext(WeatherContext);
   const [selected, setSelected] = useState<number | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
 
   const center = { lat: 18.5, lng: -69.9 };
-  const zoom = 9;
-
+  const zoom = 8.5;
 
   return (
     <div
@@ -39,49 +37,55 @@ const MainMap: React.FC = () => {
         restriction={{ latLngBounds: mapBounds, strictBounds: true }}
         style={{ width: "100%", height: "100%" }}
       >
-        {locations.map((warehouse, index) => {
-          const position = {
-            lat: warehouse.position[0],
-            lng: warehouse.position[1]
-          };
+        {allRooms
+          .filter((r) => r.lat && r.lng)
+          .map((room, index) => {
+            const position: google.maps.LatLngLiteral = {
+              lat: room.lat as number,
+              lng: room.lng as number,
+            };
 
-          return (
-            <React.Fragment key={index}>
-              <AdvancedMarker
-                position={position}
-                title={warehouse.name}
-                onClick={() => setSelected(index)}
-              >
-                <img
-                  src="/assets/images/agrofem.png"
-                  alt={warehouse.name}
-                  className="w-12 h-12 rounded-full border-2 border-white shadow-md object-contain bg-white"
-                />
-              </AdvancedMarker>
-
-              {selected === index && (
-                <InfoWindow
+            return (
+              <React.Fragment key={index}>
+                <AdvancedMarker
                   position={position}
-                  maxWidth={280}
-                  onCloseClick={() => setSelected(null)}
-                  headerDisabled={true}
+                  title={room.name}
+                  onClick={() => setSelected(index)}
                 >
-                  <WarehousePopup
-                    name={warehouse.name}
-                    address={warehouse.address}
-                    phone={warehouse.phone}
-                    hours={warehouse.hours}
-                    onDetails={() => {
-                      openWarehousePlan(warehouse.name);
-                      setSelected(null);
-                    }}
-                    onClose={() => setSelected(null)} // tu botón personalizado
+                  <img
+                    src={room.imageUrl || "/assets/images/agrofem.png"}
+                    alt={room.name}
+                    className="w-10 h-10 rounded-full border-2 border-white shadow-md object-cover bg-white"
                   />
-                </InfoWindow>
-              )}
-            </React.Fragment>
-          );
-        })}
+                </AdvancedMarker>
+
+                {selected === index && (
+                  <InfoWindow
+                    position={position}
+                    maxWidth={280}
+                    onCloseClick={() => setSelected(null)}
+                    headerDisabled={true}
+                  >
+                    <WarehousePopup
+                      name={room.name}
+                      address={room.address || "Dirección no especificada"}
+                      phone={room.phone || "—"}
+                      hours={room.hours || "—"}
+                      temperature={room.temperature}
+                      humedity={room.humedity}
+                      alert={room.alert}
+                      warning={room.warning}
+                      onDetails={() => {
+                        openWarehousePlan(room.name);
+                        setSelected(null);
+                      }}
+                      onClose={() => setSelected(null)}
+                    />
+                  </InfoWindow>
+                )}
+              </React.Fragment>
+            );
+          })}
       </Map>
     </div>
   );

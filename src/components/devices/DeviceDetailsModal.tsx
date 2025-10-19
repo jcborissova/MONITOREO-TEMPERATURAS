@@ -20,7 +20,6 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  // ✅ Imagen o ícono por defecto
   const imageSrc =
     device.imageUrl ||
     "/images/device.png" ||
@@ -45,10 +44,9 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
           </h2>
         </div>
 
-        {/* Imagen del dispositivo o ícono por defecto */}
+        {/* Imagen */}
         <div className="flex justify-center mb-6 relative">
           <div className="absolute w-32 h-32 bg-blue-50 rounded-full blur-xl opacity-60"></div>
-
           {device.imageUrl ? (
             <img
               src={imageSrc}
@@ -62,29 +60,19 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
           )}
         </div>
 
-        {/* Información del dispositivo */}
+        {/* Información */}
         <div className="space-y-3 text-sm text-gray-700">
-          <p>
-            <strong>Zona:</strong> {device.name}
-          </p>
-          <p>
-            <strong>Temperatura actual:</strong> {device.temperature.toFixed(1)} °C
-          </p>
-          <p>
-            <strong>Humedad actual:</strong>{" "}
-            {device.humidity ? `${device.humidity.toFixed(1)} %` : "—"}
-          </p>
-          <p>
-            <strong>Última actualización:</strong>{" "}
-            {new Date(device.updatedAt).toLocaleString("es-DO")}
-          </p>
+          <p><strong>Zona:</strong> {device.name}</p>
+          <p><strong>Temperatura actual:</strong> {device.temperature.toFixed(1)} °C</p>
+          <p><strong>Humedad actual:</strong> {device.humedity ? `${device.humedity.toFixed(1)} %` : "—"}</p>
+          <p><strong>Última actualización:</strong> {new Date(device.updatedAt).toLocaleString("es-DO")}</p>
         </div>
 
         {/* Historial */}
         <div className="mt-6">
           <h3 className="font-semibold text-gray-800 mb-2">Historial reciente</h3>
           {device.history && device.history.length > 0 ? (
-            <div className="max-h-40 overflow-y-auto border rounded-lg text-sm">
+            <div className="max-h-48 overflow-y-auto border rounded-lg text-sm">
               <table className="w-full">
                 <thead className="bg-gray-100 text-gray-600">
                   <tr>
@@ -94,19 +82,29 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {device.history.map((entry, i) => (
-                    <tr key={i} className="border-t text-gray-700">
-                      <td className="py-1 px-3">
-                        {new Date(entry.timestamp).toLocaleString("es-DO")}
-                      </td>
-                      <td className="py-1 px-3 text-right">
-                        {entry.temperature.toFixed(1)}
-                      </td>
-                      <td className="py-1 px-3 text-right">
-                        {entry.humidity?.toFixed(1) ?? "—"}
-                      </td>
-                    </tr>
-                  ))}
+                  {device.history
+                    .slice(-20)
+                    .reverse()
+                    .map((entry, i) => (
+                      <tr key={i} className="border-t text-gray-700">
+                        <td className="py-1 px-3">
+                          {new Date(entry.timestamp).toLocaleString("es-DO", {
+                            dateStyle: "short",
+                            timeStyle: "short",
+                          })}
+                        </td>
+                        <td className="py-1 px-3 text-right">
+                          {typeof entry.temperature === "number"
+                            ? entry.temperature.toFixed(1)
+                            : "—"}
+                        </td>
+                        <td className="py-1 px-3 text-right">
+                          {typeof entry.humedity === "number"
+                            ? entry.humedity.toFixed(1)
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>

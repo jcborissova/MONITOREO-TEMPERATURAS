@@ -4,7 +4,7 @@
   export interface Measure {
     timestamp: string;
     temperature: number;
-    humidity?: number;
+    humedity?: number;
     productivity?: number;
   }
   
@@ -17,13 +17,14 @@
     alert?: boolean;
     warning?: boolean;
     temperature: number;
-    humidity?: number;
+    humedity?: number;
     productivity?: number;
     updatedAt: string;
     history?: Measure[];
     lat?: number;
     lng?: number;
     imageUrl? : string;
+    devEUI?: string;
   }
   
   export interface ClimateData {

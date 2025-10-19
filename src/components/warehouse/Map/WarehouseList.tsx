@@ -4,12 +4,12 @@ import {
   MagnifyingGlassIcon,
   MinusIcon,
   PlusIcon,
+  BuildingOfficeIcon,
 } from "@heroicons/react/24/solid";
-import { locations } from "../../../data/Locations";
 import { WeatherContext } from "../../../context/WeatherContext";
 
 const WarehouseList: React.FC = () => {
-  const { openWarehousePlan } = useContext(WeatherContext);
+  const { allRooms = [], openWarehousePlan } = useContext(WeatherContext);
   const [searchQuery, setSearchQuery] = useState("");
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -67,8 +67,11 @@ const WarehouseList: React.FC = () => {
     pos.current = { x, y, left: style.left, top: style.top };
   };
 
-  const filteredWarehouses = locations.filter((w) =>
-    w.name.toLowerCase().includes(searchQuery.toLowerCase())
+  /** 🔍 Filtro de búsqueda seguro */
+  const filteredWarehouses = allRooms.filter(
+    (room) =>
+      room?.name &&
+      room.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -85,11 +88,7 @@ const WarehouseList: React.FC = () => {
           className="relative flex items-center p-3 border-b bg-blue-50 cursor-move select-none"
         >
           <div className="flex items-center gap-3 pr-8 w-full">
-            <img
-              src="/assets/images/agrofem.png"
-              alt="Agrofem Logo"
-              className="w-8 h-8 rounded-full object-contain border"
-            />
+            <BuildingOfficeIcon className="w-6 h-6 text-blue-600" />
             <span className="text-sm sm:text-base font-bold text-gray-800 truncate">
               Almacenes
             </span>
@@ -114,7 +113,7 @@ const WarehouseList: React.FC = () => {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Buscar sucursal..."
+                placeholder="Buscar almacén..."
                 className="w-full px-4 py-2 pr-10 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -122,7 +121,7 @@ const WarehouseList: React.FC = () => {
               <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute right-3 top-2.5 pointer-events-none" />
             </div>
 
-            {/* Lista */}
+            {/* Lista de almacenes */}
             <ul className="space-y-2">
               {filteredWarehouses.length > 0 ? (
                 filteredWarehouses.map((warehouse, index) => (
@@ -139,7 +138,9 @@ const WarehouseList: React.FC = () => {
                 ))
               ) : (
                 <li className="text-gray-500 text-sm text-center py-2">
-                  No se encontraron resultados
+                  {allRooms.length === 0
+                    ? "No hay almacenes disponibles"
+                    : "No se encontraron resultados"}
                 </li>
               )}
             </ul>

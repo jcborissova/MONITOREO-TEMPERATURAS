@@ -50,7 +50,7 @@ const ExportButton: React.FC<ExportButtonProps> = ({
             Zona: zone,
             Fecha: new Date(m.timestamp).toLocaleString("es-DO"),
             "Temp (°C)": m.temperature,
-            "Humedad (%)": m.humidity,
+            "Humedad (%)": m.humedity,
           });
         });
       });

@@ -7,8 +7,8 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import type { Room } from "../../types/types"; // ✅ usa tipo global
- // ✅ usa tipo global
+import type { Room } from "../../types/types";
+
 
 interface StatusPieChartProps {
   rooms: Room[];
