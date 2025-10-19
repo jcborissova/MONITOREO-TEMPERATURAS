@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// ============================================
-// src/services/auth.service.ts
-import apiService from './api.service';
-import { API_ENDPOINTS } from '../config/api.config';
-import type { LoginRequest, LoginResponse, User } from '../types/api.types';
+import apiService from "./api.service";
+import { API_ENDPOINTS } from "../config/api.config";
+import type { LoginRequest, LoginResponse, User } from "../types/api.types";
+
+const TOKEN_KEY = "access_token";
+const USER_KEY = "user";
 
 class AuthService {
   async login(credentials: LoginRequest): Promise<LoginResponse> {
@@ -14,31 +15,32 @@ class AuthService {
       );
 
       // Guardar token y usuario en localStorage
-      localStorage.setItem('access_token', response.access_token);
-      localStorage.setItem('user', JSON.stringify(response.user));
+      localStorage.setItem(TOKEN_KEY, response.access_token);
+      localStorage.setItem(USER_KEY, JSON.stringify(response.user));
 
       return response;
     } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Error al iniciar sesión');
+      throw new Error(error.response?.data?.message || "Error al iniciar sesión");
     }
   }
 
   logout(): void {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
   }
 
   getCurrentUser(): User | null {
-    const userStr = localStorage.getItem('user');
+    const userStr = localStorage.getItem(USER_KEY);
     return userStr ? JSON.parse(userStr) : null;
   }
 
   getToken(): string | null {
-    return localStorage.getItem('access_token');
+    return localStorage.getItem(TOKEN_KEY);
   }
 
   isAuthenticated(): boolean {
-    return !!this.getToken();
+    const token = this.getToken();
+    return !!token && token.length > 0;
   }
 }
 

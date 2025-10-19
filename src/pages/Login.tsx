@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import authService from "../services/auth.service";
-import Logo from "../assets/images/agrofem.png"; // Ruta de tu logo
+import Logo from "../assets/images/agrofem.png";
 import { XMarkIcon } from "@heroicons/react/24/solid";
 
 const Login: React.FC = () => {
@@ -14,8 +14,9 @@ const Login: React.FC = () => {
 
   // 🚀 Redirigir si ya está autenticado
   useEffect(() => {
-    if (authService.isAuthenticated()) {
-      navigate("/");
+    const token = authService.getToken();
+    if (token) {
+      navigate("/", { replace: true });
     }
   }, [navigate]);
 
@@ -34,7 +35,7 @@ const Login: React.FC = () => {
 
     try {
       await authService.login({ email, password });
-      navigate("/");
+      navigate("/", { replace: true });
     } catch (err: any) {
       setError(err.message || "Error al iniciar sesión");
     } finally {

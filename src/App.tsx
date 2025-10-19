@@ -14,32 +14,40 @@ import ReportPage from "./pages/ReportPage";
 
 const App: React.FC = () => {
   return (
-    <APIProvider apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY!} libraries={["maps"]}>
-      <SensorsProvider>
-        <WeatherProvider>
-          <Router>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route
-                path="/"
-                element={
-                  <PrivateRoute>
-                    <Layout />
-                  </PrivateRoute>
-                }
+    <Router>
+      <Routes>
+        {/* 🔹 RUTA DE LOGIN SIN PROVIDERS */}
+        <Route path="/login" element={<Login />} />
+
+        {/* 🔹 RUTAS PRIVADAS CON TODOS LOS PROVIDERS */}
+        <Route
+          path="/*"
+          element={
+            <PrivateRoute>
+              <APIProvider
+                apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY!}
+                libraries={["maps"]}
               >
-                <Route index element={<Dashboard />} />
-                <Route path="/warehouses" element={<Warehouses />} />
-                <Route path="/devices" element={<Devices />} />
-                <Route path="/report" element={<ReportPage />} />
-              </Route>
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Router>
-          <WarehousePlanModal />
-        </WeatherProvider>
-      </SensorsProvider>
-    </APIProvider>
+                <SensorsProvider>
+                  <WeatherProvider>
+                    <Layout />
+                    <WarehousePlanModal />
+                  </WeatherProvider>
+                </SensorsProvider>
+              </APIProvider>
+            </PrivateRoute>
+          }
+        >
+          <Route index element={<Dashboard />} />
+          <Route path="warehouses" element={<Warehouses />} />
+          <Route path="devices" element={<Devices />} />
+          <Route path="report" element={<ReportPage />} />
+        </Route>
+
+        {/* 🔹 Cualquier otra ruta → redirige */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Router>
   );
 };
 
