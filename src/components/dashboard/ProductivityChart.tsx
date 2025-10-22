@@ -19,33 +19,31 @@ interface ProductivityChartProps {
 }
 
 const ProductivityChart: React.FC<ProductivityChartProps> = ({ rooms }) => {
-  // ✅ Preprocesamiento optimizado
+  // 🔹 Preprocesar datos
   const data = useMemo(() => {
     if (!rooms || rooms.length === 0) return [];
-
     return rooms.map((r) => ({
       name: r.deviceName || r.name || "Zona",
       productividad: r.productivity ?? 0,
       fill:
         (r.productivity ?? 0) >= 90
-          ? "#16a34a" // verde - excelente
+          ? "#16a34a"
           : (r.productivity ?? 0) >= 70
-          ? "#facc15" // amarillo - aceptable
-          : "#ef4444", // rojo - bajo
+          ? "#facc15"
+          : "#ef4444",
     }));
   }, [rooms]);
 
-  // ✅ Promedio general para línea de referencia
   const avgProductivity =
     data.reduce((sum, d) => sum + d.productividad, 0) / (data.length || 1);
 
-  // ✅ Tooltip personalizado elegante
+  // 🔹 Tooltip adaptativo y elegante
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const value = payload[0].value;
       return (
-        <div className="bg-white border border-gray-200 shadow-md px-3 py-2 rounded-lg text-sm text-gray-700">
-          <p className="font-semibold text-gray-900 mb-1">{label}</p>
+        <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700 max-w-[180px]">
+          <p className="font-semibold text-gray-900 mb-1 truncate">{label}</p>
           <p>
             Productividad:{" "}
             <span
@@ -66,29 +64,38 @@ const ProductivityChart: React.FC<ProductivityChartProps> = ({ rooms }) => {
     return null;
   };
 
-  if (!data.length) {
+  // 🔹 Sin datos
+  if (!data.length)
     return (
-      <div className="flex items-center justify-center h-[220px] text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-[220px] sm:h-[260px] md:h-[300px] text-gray-400 text-sm">
         Sin datos disponibles
       </div>
     );
-  }
 
   return (
-    <div className="h-[220px] sm:h-[280px] md:h-[320px]">
+    <div className="w-full h-[220px] sm:h-[280px] md:h-[340px] lg:h-[380px]">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart
           data={data}
-          margin={{ top: 10, right: 15, left: 0, bottom: 25 }}
+          margin={{
+            top: 10,
+            right: 15,
+            left: 5,
+            bottom: window.innerWidth < 500 ? 40 : 25,
+          }}
           barGap={6}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis
             dataKey="name"
-            tick={{ fontSize: 11, fill: "#6b7280" }}
-            angle={-20}
-            textAnchor="end"
-            height={50}
+            tick={{
+              fontSize: window.innerWidth < 500 ? 10 : 12,
+              fill: "#6b7280",
+            }}
+            angle={window.innerWidth < 600 ? -30 : 0}
+            textAnchor={window.innerWidth < 600 ? "end" : "middle"}
+            height={window.innerWidth < 600 ? 60 : 40}
+            interval={0}
           />
           <YAxis
             domain={[0, 100]}
@@ -100,7 +107,7 @@ const ProductivityChart: React.FC<ProductivityChartProps> = ({ rooms }) => {
             cursor={{ fill: "rgba(0,0,0,0.05)" }}
           />
 
-          {/* 🔹 Línea de referencia promedio */}
+          {/* 🔹 Línea promedio */}
           <ReferenceLine
             y={avgProductivity}
             stroke="#3b82f6"
@@ -110,24 +117,25 @@ const ProductivityChart: React.FC<ProductivityChartProps> = ({ rooms }) => {
               position: "right",
               fill: "#3b82f6",
               fontSize: 12,
-              fontWeight: 500,
+              fontWeight: 600,
             }}
           />
 
-          {/* 🔹 Barras de productividad */}
+          {/* 🔹 Barras dinámicas */}
           <Bar
             dataKey="productividad"
             radius={[8, 8, 0, 0]}
-            isAnimationActive={true}
+            maxBarSize={60}
+            isAnimationActive
           >
             <LabelList
               dataKey="productividad"
               position="top"
-              formatter={(value: React.ReactNode) =>
+              formatter={(value: any) =>
                 typeof value === "number" ? `${value.toFixed(0)}%` : value
               }
               style={{
-                fontSize: 10,
+                fontSize: window.innerWidth < 500 ? 9 : 11,
                 fill: "#374151",
                 fontWeight: 500,
               }}
