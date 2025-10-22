@@ -1,31 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useContext, useMemo } from "react";
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-  Title,
-  Tooltip,
-  Legend,
-} from "chart.js";
+import { Chart as ChartJS, registerables } from "chart.js";
 import { Chart } from "react-chartjs-2";
 import { WeatherContext } from "../../context/WeatherContext";
 import type { Measure } from "../../types/types";
 
-// ✅ Registrar todos los componentes necesarios
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-  Title,
-  Tooltip,
-  Legend
-);
+// ✅ Registra todos los controladores y elementos (bar, line, pie, etc.)
+ChartJS.register(...registerables);
 
 const TemperatureEffectivenessChart: React.FC = () => {
   const { allRooms, historyData } = useContext(WeatherContext);
@@ -65,12 +46,11 @@ const TemperatureEffectivenessChart: React.FC = () => {
     d.avgTemp < MIN_LIMIT || d.avgTemp > MAX_LIMIT ? "#f59e0b" : "#16a34a"
   );
 
-  // ✅ Tipamos como "mixed" porque combina barras y líneas
   const data: any = {
     labels,
     datasets: [
       {
-        type: "bar" as const,
+        type: "bar",
         label: "Promedio Temperatura (°C)",
         data: values,
         backgroundColor: colors,
@@ -79,21 +59,19 @@ const TemperatureEffectivenessChart: React.FC = () => {
         barThickness: 40,
       },
       {
-        type: "line" as const,
+        type: "line",
         label: "Límite Mínimo",
         data: Array(labels.length).fill(MIN_LIMIT),
-        borderColor: "rgba(107,114,128,0.5)",
+        borderColor: "rgba(107,114,128,0.6)",
         borderDash: [6, 4],
-        fill: false,
         pointRadius: 0,
       },
       {
-        type: "line" as const,
+        type: "line",
         label: "Límite Máximo",
         data: Array(labels.length).fill(MAX_LIMIT),
-        borderColor: "rgba(107,114,128,0.5)",
+        borderColor: "rgba(107,114,128,0.6)",
         borderDash: [6, 4],
-        fill: false,
         pointRadius: 0,
       },
     ],
@@ -138,7 +116,6 @@ const TemperatureEffectivenessChart: React.FC = () => {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 h-[400px]">
       {avgData.length > 0 ? (
-        // ✅ Usamos Chart con type="bar" pero dataset mixto
         <Chart type="bar" data={data} options={options} />
       ) : (
         <div className="flex items-center justify-center h-full text-gray-400">
