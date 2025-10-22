@@ -19,7 +19,7 @@ const ReportPage: React.FC = () => {
   const [dateRange, setDateRange] = useState({ start: weekAgo, end: today });
   const [reportData, setReportData] = useState<ReportRow[]>([]);
 
-  // Interpreta timestamps si existen (seg, ms o string ISO). Si no hay, devuelve NaN.
+  // 🕒 Interpreta timestamps si existen (seg, ms o string ISO). Si no hay, devuelve NaN.
   const parseTimestamp = (record: any): number => {
     const ts =
       record?.timestamp || record?.created_at || record?.time || record?.date;
@@ -32,7 +32,7 @@ const ReportPage: React.FC = () => {
     return NaN;
   };
 
-  // Filtra por rango SOLO si al menos un registro tiene timestamp válido.
+  // 📅 Filtra por rango SOLO si al menos un registro tiene timestamp válido.
   const filterByDateRange = (measures: Measure[]) => {
     if (!Array.isArray(measures)) return [];
     const start = new Date(dateRange.start).getTime();
@@ -51,7 +51,6 @@ const ReportPage: React.FC = () => {
   };
 
   useEffect(() => {
-
     if (!historyData || Object.keys(historyData).length === 0) {
       setReportData([]);
       return;
@@ -59,15 +58,21 @@ const ReportPage: React.FC = () => {
 
     const aggregated: ReportRow[] = Object.entries(historyData).map(
       ([zoneKey, measures]) => {
-
         const filtered = filterByDateRange(measures);
-
-        // Si no se aplicó filtro (sin timestamps) 'filtered' == measures.
         const base = filtered.length > 0 ? filtered : [];
+
+        // ✅ Obtener nombre amigable (nombre real de la zona)
+        const first = Array.isArray(measures) && measures.length > 0 ? measures[0] : null;
+        const friendlyName =
+          (first as any)?.deviceName ||
+          (first as any)?.name ||
+          (first as any)?.roomName ||
+          (first as any)?.zone ||
+          zoneKey;
 
         if (base.length === 0) {
           return {
-            Zona: zoneKey,
+            Zona: friendlyName,
             "Promedio Temperatura (°C)": "—",
             "Promedio Humedad (%)": "—",
             "Temp Mín (°C)": "—",
@@ -79,15 +84,17 @@ const ReportPage: React.FC = () => {
           };
         }
 
+        // 🔢 Temperatura
         const temps = base
           .map((m: any) => Number(m.temperature))
           .filter((t: number) => !isNaN(t));
 
-        // Tu backend usa 'humedity' (con e). Dejamos también backups 'humedity' y 'hum' por si acaso.
+        // 💧 Humedad (con respaldo para diferentes nombres)
         const hums = base
-          .map((m: any) => Number(m.humedity ?? m.humedity ?? m.hum))
+          .map((m: any) => Number(m.humedity ?? m.humidity ?? m.hum))
           .filter((h: number) => !isNaN(h));
 
+        // 📈 Cálculos promedios, min y max con redondeo
         const avgTemp =
           temps.length > 0
             ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(2)
@@ -97,12 +104,12 @@ const ReportPage: React.FC = () => {
             ? (hums.reduce((a, b) => a + b, 0) / hums.length).toFixed(2)
             : "—";
 
-        const minTemp = temps.length ? Math.min(...temps).toFixed(1) : "—";
-        const maxTemp = temps.length ? Math.max(...temps).toFixed(1) : "—";
-        const minHum = hums.length ? Math.min(...hums).toFixed(1) : "—";
-        const maxHum = hums.length ? Math.max(...hums).toFixed(1) : "—";
+        const minTemp = temps.length ? Math.min(...temps).toFixed(2) : "—";
+        const maxTemp = temps.length ? Math.max(...temps).toFixed(2) : "—";
+        const minHum = hums.length ? Math.min(...hums).toFixed(2) : "—";
+        const maxHum = hums.length ? Math.max(...hums).toFixed(2) : "—";
 
-        // Último registro: si no hay timestamp, mostramos “—”
+        // 🕓 Último registro: si no hay timestamp, mostramos “—”
         const last = base[base.length - 1];
         const lastTs = parseTimestamp(last);
         const lastFormatted = !isNaN(lastTs)
@@ -113,7 +120,7 @@ const ReportPage: React.FC = () => {
           : "—";
 
         const row: ReportRow = {
-          Zona: zoneKey, // aquí va tu devEUI o nombre
+          Zona: friendlyName, // 👈 nombre real de la zona
           "Promedio Temperatura (°C)": avgTemp,
           "Promedio Humedad (%)": avgHum,
           "Temp Mín (°C)": minTemp,
@@ -136,7 +143,7 @@ const ReportPage: React.FC = () => {
       title="Reporte de Promedios por Zona"
       description="Analiza los datos históricos de temperatura y humedad por zona. Exporta información detallada o promedios personalizados según tus necesidades."
     >
-      {/* Controles de rango */}
+      {/* 📆 Controles de rango de fechas */}
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4 items-end bg-white border border-gray-100 rounded-2xl p-5 shadow-sm mb-8 hover:shadow-md transition-all">
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -164,6 +171,7 @@ const ReportPage: React.FC = () => {
           </div>
         </div>
 
+        {/* 📤 Botón Exportar */}
         <div className="flex justify-end w-full sm:w-auto">
           <ExportButton
             data={reportData}
@@ -173,7 +181,7 @@ const ReportPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Tabla */}
+      {/* 📋 Tabla de resultados */}
       <ReportTable data={reportData} />
     </PageContainer>
   );

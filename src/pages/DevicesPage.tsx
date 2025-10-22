@@ -2,8 +2,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useContext, useState } from "react";
 import {
-  EyeIcon,
-  Cog6ToothIcon,
   Battery100Icon,
   Battery50Icon,
   Battery0Icon,
@@ -14,7 +12,7 @@ import AlertThresholdModal from "../components/devices/AlertThresholdModal";
 import DeviceDetailsModal from "../components/devices/DeviceDetailsModal";
 import { SensorsContext } from "../context/SensorsContext";
 import { WeatherContext } from "../context/WeatherContext";
-import ResponsiveTable from "../components/ui/ResponsiveTable"; // 👈 IMPORTANTE
+import ResponsiveTable from "../components/ui/ResponsiveTable";
 import type { Room, Measure } from "../types/types";
 
 interface DeviceThresholds {
@@ -30,40 +28,44 @@ const DevicesPage: React.FC = () => {
   const [selectedDevice, setSelectedDevice] = useState<Room | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  // Thresholds are persisted to localStorage to avoid keeping an unused local state
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // 🔧 Abrir modal de configuración
   const handleOpenConfig = (room: Room) => {
     setSelectedDevice(room);
     setIsModalOpen(true);
   };
 
-  const normalizeDate = (value: any): string => {
-    if (!value) return new Date().toISOString();
-    if (typeof value === "number")
-      return new Date(value < 9999999999 ? value * 1000 : value).toISOString();
-    if (typeof value === "string" && value.includes(" "))
-      return new Date(value.replace(" ", "T")).toISOString();
-    const parsed = new Date(value);
-    return isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
-  };
-
-  const resolveDevEUIFor = (room: Room): string | null => {
-    if (room.devEUI) return room.devEUI;
-    const byName = allRooms.find(
-      (r) =>
-        r.name?.trim().toLowerCase() === room.name?.trim().toLowerCase() ||
-        (r as any).deviceName?.trim().toLowerCase() === room.name?.trim().toLowerCase()
-    );
-    return byName?.devEUI ?? null;
-  };
-
+  // 👁️ Abrir modal de detalles
   const handleViewDetails = (room: Room) => {
     if (!historyData || Object.keys(historyData).length === 0) {
       setSelectedDevice({ ...room, history: [] });
       setIsDetailsOpen(true);
       return;
     }
+
+    const normalizeDate = (value: any): string => {
+      if (!value) return new Date().toISOString();
+      if (typeof value === "number")
+        return new Date(value < 9999999999 ? value * 1000 : value).toISOString();
+      if (typeof value === "string" && value.includes(" "))
+        return new Date(value.replace(" ", "T")).toISOString();
+      const parsed = new Date(value);
+      return isNaN(parsed.getTime())
+        ? new Date().toISOString()
+        : parsed.toISOString();
+    };
+
+    const resolveDevEUIFor = (room: Room): string | null => {
+      if (room.devEUI) return room.devEUI;
+      const byName = allRooms.find(
+        (r) =>
+          r.name?.trim().toLowerCase() === room.name?.trim().toLowerCase() ||
+          (r as any).deviceName?.trim().toLowerCase() ===
+            room.name?.trim().toLowerCase()
+      );
+      return byName?.devEUI ?? null;
+    };
 
     let key = resolveDevEUIFor(room);
     if (!key) {
@@ -73,30 +75,25 @@ const DevicesPage: React.FC = () => {
       key = byNameKey ?? null;
     }
 
-    if (!key) {
-      console.warn("❗ No se encontró devEUI o clave para:", room.name);
-      setSelectedDevice({ ...room, history: [] });
-      setIsDetailsOpen(true);
-      return;
-    }
-
-    const measures = historyData[key] || [];
-    const parsedHistory: Measure[] = measures.map((m: any) => {
-      const timestamp =
-        m.timestamp || m.created_at || m.time || m.date || new Date().toISOString();
-
-      return {
-        timestamp: normalizeDate(timestamp),
-        temperature: Number(m.temperature) || 0,
-        humedity: Number(m.humedity ?? m.humidity ?? m.data?.humidity ?? 0),
-      };
-    });
+    const measures = key ? historyData[key] || [] : [];
+    const parsedHistory: Measure[] = measures.map((m: any) => ({
+      timestamp: normalizeDate(
+        m.timestamp || m.created_at || m.time || m.date || new Date().toISOString()
+      ),
+      temperature: Number(m.temperature) || 0,
+      humedity: Number(m.humedity ?? m.humidity ?? m.data?.humidity ?? 0),
+    }));
 
     setSelectedDevice({ ...room, history: parsedHistory });
     setIsDetailsOpen(true);
   };
 
-  const handleSaveThresholds = (roomName: string, maxTemp: number, minTemp: number) => {
+  // 💾 Guardar umbrales
+  const handleSaveThresholds = (
+    roomName: string,
+    maxTemp: number,
+    minTemp: number
+  ) => {
     try {
       const raw = localStorage.getItem("device_thresholds");
       const parsed: DeviceThresholds[] = raw ? JSON.parse(raw) : [];
@@ -104,37 +101,70 @@ const DevicesPage: React.FC = () => {
       updated.push({ id: roomName, maxTemp, minTemp });
       localStorage.setItem("device_thresholds", JSON.stringify(updated));
     } catch (e) {
-      // fallback: log error but do not break the UI
-      // eslint-disable-next-line no-console
-      console.warn("Failed to save thresholds to localStorage", e);
+      console.warn("Failed to save thresholds", e);
     }
   };
 
+  // 🔄 Refrescar sensores
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await refreshSensors();
     setIsRefreshing(false);
   };
 
+  // 🔋 Render batería
   const renderBattery = (level?: number) => {
     if (level === undefined || level === null) return "—";
     if (level >= 80)
       return (
-        <span className="flex items-center justify-end text-green-600 font-semibold">
+        <span className="flex items-center text-green-600 font-semibold">
           <Battery100Icon className="w-5 h-5 mr-1" /> {level}%
         </span>
       );
     if (level >= 40)
       return (
-        <span className="flex items-center justify-end text-yellow-500 font-semibold">
+        <span className="flex items-center text-yellow-500 font-semibold">
           <Battery50Icon className="w-5 h-5 mr-1" /> {level}%
         </span>
       );
     return (
-      <span className="flex items-center justify-end text-red-500 font-semibold">
+      <span className="flex items-center text-red-500 font-semibold">
         <Battery0Icon className="w-5 h-5 mr-1" /> {level}%
       </span>
     );
+  };
+
+  // ⚡ Render estado conectado/desconectado
+  const renderConnectionStatus = (updatedAt?: string | Date) => {
+    if (!updatedAt)
+      return (
+        <span className="flex items-center gap-1 text-red-500 font-medium">
+          <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+          Desconectado
+        </span>
+      );
+
+    const lastUpdate = new Date(updatedAt);
+    const diffMin = (Date.now() - lastUpdate.getTime()) / 60000;
+    const isConnected = diffMin <= 1000;
+
+    return isConnected ? (
+      <span className="flex items-center gap-1 text-green-600 font-medium">
+        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+        Conectado
+      </span>
+    ) : (
+      <span className="flex items-center gap-1 text-red-500 font-medium">
+        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+        Desconectado
+      </span>
+    );
+  };
+
+  // 🧩 Acciones de tabla
+  const handleTableAction = (action: string, room: Room) => {
+    if (action === "details") handleViewDetails(room);
+    if (action === "edit") handleOpenConfig(room);
   };
 
   return (
@@ -151,85 +181,55 @@ const DevicesPage: React.FC = () => {
             isRefreshing ? "opacity-70 cursor-wait" : ""
           }`}
         >
-          <ArrowPathIcon className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`} />
+          <ArrowPathIcon
+            className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`}
+          />
           {isRefreshing ? "Actualizando..." : "Refrescar datos"}
         </button>
       </div>
 
-      {/* ✅ Nueva tabla reutilizando ResponsiveTable */}
+      {/* ✅ Tabla dinámica mejorada */}
       <ResponsiveTable
         title="Dispositivos Activos"
         data={sensors}
         expandableKey="name"
         emptyMessage="No se encontraron dispositivos registrados."
+        onActionClick={handleTableAction}
+        actions={[
+          { label: "Ver detalles", value: "details" },
+          { label: "Configurar umbrales", value: "edit" },
+        ]}
         columns={[
-          { key: "name", label: "Zona / Dispositivo" },
           {
-            key: "temperature",
-            label: "Temperatura (°C)",
-            align: "right",
-            render: (v) => v?.toFixed?.(1) ?? "—",
+            key: "name",
+            label: "Zona / Dispositivo",
+            align: "left",
           },
           {
-            key: "humedity",
-            label: "Humedad (%)",
-            align: "right",
-            render: (v) => v?.toFixed?.(1) ?? "—",
+            key: "devEUI",
+            label: "UID",
+            align: "left",
+            render: (v) => v ?? "—",
           },
           {
             key: "productivity",
             label: "Batería",
-            align: "right",
+            align: "left",
             render: (v) => renderBattery(v),
           },
           {
             key: "updatedAt",
-            label: "Última actualización",
-            align: "right",
-            render: (v) =>
-              v ? new Date(v).toLocaleString("es-DO") : "Sin datos",
+            label: "Estado",
+            align: "left",
+            render: (v) => renderConnectionStatus(v),
           },
           {
-            key: "acciones",
-            label: "Acciones",
-            align: "center",
-            render: (_v, room) => (
-              <div className="flex justify-center gap-3">
-                <button
-                  onClick={() => handleViewDetails(room)}
-                  className="text-blue-600 hover:text-blue-800 transition"
-                >
-                  <EyeIcon className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => handleOpenConfig(room)}
-                  className="text-gray-600 hover:text-gray-900 transition"
-                >
-                  <Cog6ToothIcon className="w-5 h-5" />
-                </button>
-              </div>
-            ),
+            key: "temperature",
+            label: "Temperatura (°C)",
+            align: "left",
+            render: (v) => (v != null ? v.toFixed(1) : "—"),
           },
         ]}
-        expandedRender={(room) => (
-          <div>
-            <h4 className="font-semibold text-gray-800 mb-2">
-              Detalles de {room.name}
-            </h4>
-            <p className="text-sm text-gray-600">
-              Temperatura actual: {room.temperature?.toFixed(1)} °C
-            </p>
-            <p className="text-sm text-gray-600">
-              Humedad: {room.humedity?.toFixed(1)} %
-            </p>
-            <p className="text-sm text-gray-600">
-              Última actualización:{" "}
-              {room.updatedAt
-                ? new Date(room.updatedAt).toLocaleString("es-DO")
-                : "Sin datos"}
-            </p>
-          </div>
-        )}
       />
 
       {/* ⚙️ Modales */}

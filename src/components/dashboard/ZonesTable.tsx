@@ -1,17 +1,21 @@
 import React from "react";
-import type { Room } from "../../types/types"; // ✅ usa tipo global
- // ✅ usa tipo global
+import type { Room } from "../../types/types";
 
 interface ZonesTableProps {
   rooms: Room[];
 }
 
 const ZonesTable: React.FC<ZonesTableProps> = ({ rooms }) => {
+  const formatNumber = (value: number | null | undefined, suffix = "") => {
+    if (value == null || Number.isNaN(value)) return "N/A";
+    return `${value.toFixed(2)}${suffix}`;
+  };
+
   return (
     <div className="overflow-x-auto max-w-full">
       <table className="w-full table-auto text-xs sm:text-sm text-left border-collapse">
         <thead>
-          <tr className="bg-gray-100">
+          <tr className="bg-gray-100 text-gray-700">
             <th className="px-2 sm:px-4 py-2">Zona</th>
             <th className="px-2 sm:px-4 py-2 hidden sm:table-cell">Temp</th>
             <th className="px-2 sm:px-4 py-2 hidden sm:table-cell">Humedad</th>
@@ -21,18 +25,21 @@ const ZonesTable: React.FC<ZonesTableProps> = ({ rooms }) => {
         </thead>
         <tbody>
           {rooms.map((room, idx) => (
-            <tr key={idx} className="border-t hover:bg-gray-50">
+            <tr
+              key={idx}
+              className="border-t hover:bg-gray-50 transition-colors"
+            >
               <td className="px-2 sm:px-4 py-2 max-w-[120px] truncate">
-                {room.deviceName}
+                {room.deviceName || room.name || `Zona ${idx + 1}`}
               </td>
               <td className="px-2 sm:px-4 py-2 hidden sm:table-cell">
-                {room.temperature ?? "N/A"} °C
+                {formatNumber(room.temperature, " °C")}
               </td>
               <td className="px-2 sm:px-4 py-2 hidden sm:table-cell">
-                {room.humedity ?? "N/A"}%
+                {formatNumber(room.humedity, " %")}
               </td>
               <td className="px-2 sm:px-4 py-2 hidden md:table-cell">
-                {room.productivity ?? "N/A"}%
+                {formatNumber(room.productivity, " %")}
               </td>
               <td
                 className={`px-2 sm:px-4 py-2 font-semibold ${

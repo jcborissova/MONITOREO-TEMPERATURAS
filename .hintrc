@@ -17,6 +17,7 @@
         "button-name": "off"
       }
     ],
-    "axe/forms": "off"
+    "axe/forms": "off",
+    "axe/aria": "off"
   }
 }

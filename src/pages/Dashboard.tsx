@@ -2,21 +2,20 @@ import React, { useContext } from "react";
 import { WeatherContext } from "../context/WeatherContext";
 import DashboardKPIs from "../components/dashboard/DashboardKPIs";
 import ProductivityChart from "../components/dashboard/ProductivityChart";
-import HumedityChart from "../components/dashboard/HumedityChart";
 import StatusPieChart from "../components/dashboard/StatusPieChart";
 import ZonesTable from "../components/dashboard/ZonesTable";
 import Card from "../components/dashboard/Card";
 import PageContainer from "../components/layout/PageContainer";
+import MultiSensorChart from "../components/dashboard/MultiSensorChart";
 
 const Dashboard: React.FC = () => {
   const { allRooms, refreshData } = useContext(WeatherContext);
-
   const hasData = allRooms && allRooms.length > 0;
 
   return (
     <PageContainer
       title="Dashboard General"
-      description="Monitorea el estado general de las zonas, niveles de humedad y productividad."
+      description="Monitorea el estado general de las zonas, niveles de temperatura y humedad."
     >
       {/* Acciones rápidas */}
       <div className="flex justify-end mb-4">
@@ -37,27 +36,26 @@ const Dashboard: React.FC = () => {
           {/* KPIs principales */}
           <DashboardKPIs rooms={allRooms} />
 
-          {/* Gráficos en dos columnas */}
+          {/* Primera línea: gráfico combinado grande a ancho completo */}
+          <Card title="Temperatura y Humedad por Zona (Tiempo Real)">
+            <MultiSensorChart />
+          </Card>
+
+          {/* Segunda línea: dos columnas */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card title="Productividad por Zona">
               <ProductivityChart rooms={allRooms} />
             </Card>
 
-            <Card title="Niveles de Humedad">
-              <HumedityChart />
-            </Card>
-          </div>
-
-          {/* Estado general y tabla */}
-          <div className="space-y-6">
             <Card title="Estado General de Zonas">
               <StatusPieChart rooms={allRooms} />
             </Card>
-
-            <Card title="Resumen de Zonas">
-              <ZonesTable rooms={allRooms} />
-            </Card>
           </div>
+
+          {/* Tabla */}
+          <Card title="Resumen de Zonas">
+            <ZonesTable rooms={allRooms} />
+          </Card>
         </section>
       )}
     </PageContainer>
