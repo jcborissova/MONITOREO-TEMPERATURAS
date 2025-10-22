@@ -11,10 +11,7 @@ import MultiSensorChart from "../components/dashboard/MultiSensorChart";
 import TemperatureEffectivenessChart from "../components/dashboard/TemperatureEffectivenessChart";
 import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
-import {
-  ArrowPathIcon,
-  ArrowDownTrayIcon,
-} from "@heroicons/react/24/outline";
+import { ArrowPathIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 
 const Dashboard: React.FC = () => {
   const { allRooms, refreshData } = useContext(WeatherContext);
@@ -82,34 +79,32 @@ const Dashboard: React.FC = () => {
       description="Monitorea el estado general de las zonas, niveles de temperatura y humedad."
     >
       {/* 🔹 Encabezado del tablero */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 mb-6 flex flex-col sm:flex-row justify-between items-center gap-3">
-        <div className="flex flex-col">
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <div>
           <h2 className="text-base md:text-lg font-semibold text-gray-800">
             Tablero de Monitoreo
           </h2>
           <p className="text-xs text-gray-500">{currentTime}</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <button
             onClick={refreshData}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-gray-700 border border-gray-300 hover:bg-gray-100 transition"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm text-gray-700 border border-gray-300 hover:bg-gray-100 transition"
           >
             <ArrowPathIcon className="w-4 h-4" />
             Refrescar
           </button>
-
           <button
             onClick={() => exportDashboard("image")}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-gray-700 border border-gray-300 hover:bg-gray-100 transition"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm text-gray-700 border border-gray-300 hover:bg-gray-100 transition"
           >
             <ArrowDownTrayIcon className="w-4 h-4" />
             PNG
           </button>
-
           <button
             onClick={() => exportDashboard("pdf")}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-gray-700 border border-gray-300 hover:bg-gray-100 transition"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm text-gray-700 border border-gray-300 hover:bg-gray-100 transition"
           >
             <ArrowDownTrayIcon className="w-4 h-4" />
             PDF
@@ -119,18 +114,24 @@ const Dashboard: React.FC = () => {
 
       {/* 🔹 Resumen compacto */}
       {hasData && (
-        <div className="grid grid-cols-3 gap-3 mb-6 text-center">
+        <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-3 mb-6 text-center">
           <div className="bg-gray-50 py-2 rounded-lg border border-gray-200">
             <p className="text-xs text-gray-500">Normales</p>
-            <p className="text-green-600 font-semibold text-lg">{normal}</p>
+            <p className="text-green-600 font-semibold text-lg sm:text-xl">
+              {normal}
+            </p>
           </div>
           <div className="bg-gray-50 py-2 rounded-lg border border-gray-200">
             <p className="text-xs text-gray-500">Advertencia</p>
-            <p className="text-yellow-600 font-semibold text-lg">{warning}</p>
+            <p className="text-yellow-600 font-semibold text-lg sm:text-xl">
+              {warning}
+            </p>
           </div>
           <div className="bg-gray-50 py-2 rounded-lg border border-gray-200">
             <p className="text-xs text-gray-500">Críticas</p>
-            <p className="text-red-600 font-semibold text-lg">{critical}</p>
+            <p className="text-red-600 font-semibold text-lg sm:text-xl">
+              {critical}
+            </p>
           </div>
         </div>
       )}
@@ -148,26 +149,30 @@ const Dashboard: React.FC = () => {
 
             {/* Gráficos */}
             <Card title="Temperatura y Humedad por Zona">
-              <MultiSensorChart />
+              <div className="overflow-x-auto max-w-full">
+                <MultiSensorChart />
+              </div>
             </Card>
 
             <Card title="Efectividad Promedio de Temperatura">
               <TemperatureEffectivenessChart />
             </Card>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               <Card title="Productividad por Zona">
                 <ProductivityChart rooms={allRooms} />
               </Card>
 
-              <Card title="Estado General">
+              <Card title="Estado General de Zonas">
                 <StatusPieChart rooms={allRooms} />
               </Card>
             </div>
 
             {/* Tabla final */}
             <Card title="Resumen Detallado de Zonas">
-              <ZonesTable rooms={allRooms} />
+              <div className="overflow-x-auto">
+                <ZonesTable rooms={allRooms} />
+              </div>
             </Card>
           </>
         )}
