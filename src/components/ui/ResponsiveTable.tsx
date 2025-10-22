@@ -38,6 +38,7 @@ interface ResponsiveTableProps {
   onActionClick?: (action: string, row: any) => void;
   rowsPerPageOptions?: number[];
   defaultRowsPerPage?: number;
+  showExport?: boolean; // 🔹 NUEVO: exportación opcional
 }
 
 const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
@@ -49,6 +50,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
   className = "",
   onActionClick,
   defaultRowsPerPage = 5,
+  showExport = false, // 🔹 Por defecto: no muestra exportación
 }) => {
   const [menuAnchor, setMenuAnchor] = useState<DOMRect | null>(null);
   const [menuRow, setMenuRow] = useState<any | null>(null);
@@ -60,6 +62,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
   const [rowsPerPage] = useState(defaultRowsPerPage);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // 🔹 Cerrar menú contextual al hacer clic fuera
   useEffect(() => {
     const close = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node))
@@ -69,6 +72,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
+  // 🔹 Filtrado y búsqueda
   const filteredData = useMemo(() => {
     let filtered = data;
     if (filterKey) filtered = filtered.filter((i) => i[filterKey]);
@@ -83,6 +87,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
     return filtered;
   }, [data, search, filterKey]);
 
+  // 🔹 Ordenamiento
   const sortedData = useMemo(() => {
     if (!sortKey) return filteredData;
     return [...filteredData].sort((a, b) => {
@@ -99,6 +104,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
     currentPage * rowsPerPage
   );
 
+  // 🔹 Exportar Excel (solo si showExport es true)
   const handleExport = () => {
     const ws = XLSX.utils.json_to_sheet(sortedData);
     const wb = XLSX.utils.book_new();
@@ -106,6 +112,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
     XLSX.writeFile(wb, `${title || "export"}_${Date.now()}.xlsx`);
   };
 
+  // 🔹 Menú contextual
   const openMenu = (row: any, btn: HTMLButtonElement) => {
     const rect = btn.getBoundingClientRect();
     setMenuAnchor(rect);
@@ -148,6 +155,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
       document.body
     );
 
+  // 🔹 Sin datos
   if (!data?.length)
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 text-center text-gray-500 text-sm">
@@ -159,11 +167,11 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
     <div
       className={`bg-white rounded-xl shadow-md border border-gray-100 overflow-hidden ${className}`}
     >
-      {/* Header */}
+      {/* 🔹 Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-4 border-b bg-gray-50">
         {title && <h3 className="font-semibold text-lg text-gray-800">{title}</h3>}
 
-        {/* Filtros */}
+        {/* 🔹 Filtros y búsqueda */}
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <div className="relative flex-1 min-w-[140px]">
             <MagnifyingGlassIcon className="absolute left-2 top-2.5 w-4 h-4 text-gray-400" />
@@ -193,7 +201,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
         </div>
       </div>
 
-      {/* Tabla (solo visible en sm y más) */}
+      {/* 🔹 Tabla desktop */}
       <div className="hidden sm:block overflow-x-auto">
         <table className="min-w-full text-sm text-gray-800">
           <thead className="bg-gray-100 text-gray-700 font-semibold border-b">
@@ -203,9 +211,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
                   key={col.key}
                   onClick={() => {
                     setSortKey(col.key);
-                    setSortAsc((prev) =>
-                      sortKey === col.key ? !prev : true
-                    );
+                    setSortAsc((prev) => (sortKey === col.key ? !prev : true));
                   }}
                   className={`py-3 px-4 text-${col.align || "left"} cursor-pointer select-none whitespace-nowrap`}
                 >
@@ -220,7 +226,9 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
                   </div>
                 </th>
               ))}
-              {actions.length > 0 && <th className="py-3 px-4 text-center">Acciones</th>}
+              {actions.length > 0 && (
+                <th className="py-3 px-4 text-center">Acciones</th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -247,7 +255,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
         </table>
       </div>
 
-      {/* Card View (solo visible en mobile) */}
+      {/* 🔹 Vista móvil tipo card */}
       <div className="sm:hidden divide-y divide-gray-100">
         {paginatedData.map((row, i) => (
           <div key={i} className="p-4 flex flex-col gap-2 hover:bg-blue-50 transition">
@@ -259,7 +267,6 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
                 </span>
               </div>
             ))}
-
             {actions.length > 0 && (
               <div className="mt-2">
                 <button
@@ -277,16 +284,18 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
 
       {menuAnchor && <ActionMenu />}
 
-      {/* Footer */}
+      {/* 🔹 Footer con paginación y exportación opcional */}
       <div className="flex flex-col sm:flex-row justify-between items-center px-4 py-3 border-t bg-gray-50 text-sm text-gray-600 gap-3">
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-sm"
-          >
-            <ArrowDownTrayIcon className="w-4 h-4" />
-            Exportar
-          </button>
+          {showExport && (
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-sm"
+            >
+              <ArrowDownTrayIcon className="w-4 h-4" />
+              Exportar
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-3">

@@ -194,6 +194,7 @@ const DevicesPage: React.FC = () => {
         data={sensors}
         expandableKey="name"
         emptyMessage="No se encontraron dispositivos registrados."
+        showExport={true}
         onActionClick={handleTableAction}
         actions={[
           { label: "Ver detalles", value: "details" },

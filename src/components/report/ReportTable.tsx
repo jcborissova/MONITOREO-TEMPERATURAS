@@ -33,6 +33,7 @@ const ReportTable: React.FC<{ data: ReportRow[] }> = ({ data }) => {
       data={data}
       expandableKey="Zona"
       emptyMessage="No hay datos disponibles para el rango seleccionado."
+      showExport={true}
       columns={[
         { key: "Zona", label: "Zona" },
         {
