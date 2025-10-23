@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useContext, useMemo, useState } from "react";
+import React, { useContext, useMemo, useState, useRef } from "react";
 import {
   Chart as ChartJS,
   LineElement,
@@ -15,7 +15,8 @@ import {
   type ChartOptions,
   Colors,
   Title,
-  SubTitle} from "chart.js";
+  SubTitle,
+} from "chart.js";
 import zoomPlugin from "chartjs-plugin-zoom";
 import { Line } from "react-chartjs-2";
 import "chartjs-adapter-date-fns";
@@ -59,6 +60,7 @@ const MultiSensorChart: React.FC = () => {
     start: "",
     end: "",
   });
+  const chartRef = useRef<any>(null); // ✅ referencia al gráfico
 
   /** 🔹 Consolidar datos históricos */
   const unified = useMemo(() => {
@@ -226,11 +228,6 @@ const MultiSensorChart: React.FC = () => {
           padding: 16,
           font: { size: 12 },
         },
-        onHover: (_e, item, legend) => {
-          const chart = legend.chart;
-          chart.setDatasetVisibility(item.datasetIndex ?? 0, true);
-          chart.update();
-        },
       },
       tooltip: {
         enabled: true,
@@ -265,9 +262,6 @@ const MultiSensorChart: React.FC = () => {
         pan: {
           enabled: true,
           mode: "x",
-        },
-        limits: {
-          x: { min: "original", max: "original" },
         },
       },
     },
@@ -317,7 +311,10 @@ const MultiSensorChart: React.FC = () => {
           <CloudIcon className="w-4 h-4" /> Humedad
         </button>
         <button
-          onClick={() => window.location.reload()}
+          onClick={() => {
+            const chart = chartRef.current;
+            if (chart && chart.resetZoom) chart.resetZoom(); // ✅ solo resetea el zoom
+          }}
           className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm bg-gray-100 hover:bg-gray-200 text-gray-600 font-medium transition"
         >
           <ArrowPathIcon className="w-4 h-4" /> Reset Zoom
@@ -370,7 +367,7 @@ const MultiSensorChart: React.FC = () => {
       {/* 🔹 Gráfico */}
       <div className="h-[420px] md:h-[480px] bg-white border border-gray-200 rounded-2xl shadow-sm p-4 md:p-6">
         {hasData ? (
-          <Line data={chartData} options={chartOptions} />
+          <Line ref={chartRef} data={chartData} options={chartOptions} />
         ) : (
           <div className="flex items-center justify-center h-full text-gray-400">
             Sin datos disponibles
