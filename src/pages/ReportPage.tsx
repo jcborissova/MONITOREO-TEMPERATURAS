@@ -1,6 +1,7 @@
+/* eslint-disable prefer-const */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useContext, useEffect, useState } from "react";
-import { CalendarIcon, ArrowRightIcon } from "@heroicons/react/24/outline";
+import React, { useContext, useEffect, useState, useMemo } from "react";
+import { CalendarIcon, ArrowRightIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 import { WeatherContext } from "../context/WeatherContext";
 import PageContainer from "../components/layout/PageContainer";
 import ExportButton from "../components/report/ExportButton";
@@ -8,18 +9,42 @@ import ReportTable from "../components/report/ReportTable";
 import type { ReportRow } from "../utils/reportUtils";
 import type { Measure } from "../types/types";
 
+/** 📦 Utilidad: asegura que las fechas estén dentro de límites válidos */
+const normalizeRange = (start: string, end: string) => {
+  const today = new Date();
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  // Si alguna no es válida, retorna semana actual
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    const todayStr = today.toISOString().split("T")[0];
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
+    return { start: weekAgo, end: todayStr };
+  }
+
+  // Evita rangos invertidos
+  if (endDate < startDate) return { start, end: start };
+
+  // Evita fechas futuras
+  const todayStr = today.toISOString().split("T")[0];
+  if (endDate > today) return { start, end: todayStr };
+
+  return { start, end };
+};
+
 const ReportPage: React.FC = () => {
   const { historyData } = useContext(WeatherContext);
 
   const today = new Date().toISOString().split("T")[0];
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .split("T")[0];
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
 
   const [dateRange, setDateRange] = useState({ start: weekAgo, end: today });
   const [reportData, setReportData] = useState<ReportRow[]>([]);
+  const [rangeError, setRangeError] = useState<string | null>(null);
 
-  // 🕒 Interpreta timestamps si existen (seg, ms o string ISO). Si no hay, devuelve NaN.
+  /** 🧠 Parser robusto de timestamp */
   const parseTimestamp = (record: any): number => {
     const ts =
       record?.timestamp || record?.created_at || record?.time || record?.date;
@@ -32,17 +57,14 @@ const ReportPage: React.FC = () => {
     return NaN;
   };
 
-  // 📅 Filtra por rango SOLO si al menos un registro tiene timestamp válido.
+  /** 📅 Filtrado por rango de fechas */
   const filterByDateRange = (measures: Measure[]) => {
     if (!Array.isArray(measures)) return [];
     const start = new Date(dateRange.start).getTime();
     const end = new Date(dateRange.end).getTime();
 
     const hasAnyTimestamp = measures.some((m) => !isNaN(parseTimestamp(m)));
-    if (!hasAnyTimestamp) {
-      // No hay timestamps → no aplicar filtro
-      return measures;
-    }
+    if (!hasAnyTimestamp) return measures;
 
     return measures.filter((m) => {
       const ts = parseTimestamp(m);
@@ -50,6 +72,7 @@ const ReportPage: React.FC = () => {
     });
   };
 
+  /** 🧮 Genera los datos del reporte */
   useEffect(() => {
     if (!historyData || Object.keys(historyData).length === 0) {
       setReportData([]);
@@ -60,9 +83,8 @@ const ReportPage: React.FC = () => {
       ([zoneKey, measures]) => {
         const filtered = filterByDateRange(measures);
         const base = filtered.length > 0 ? filtered : [];
-
-        // ✅ Obtener nombre amigable (nombre real de la zona)
         const first = Array.isArray(measures) && measures.length > 0 ? measures[0] : null;
+
         const friendlyName =
           (first as any)?.deviceName ||
           (first as any)?.name ||
@@ -84,32 +106,21 @@ const ReportPage: React.FC = () => {
           };
         }
 
-        // 🔢 Temperatura
-        const temps = base
-          .map((m: any) => Number(m.temperature))
-          .filter((t: number) => !isNaN(t));
-
-        // 💧 Humedad (con respaldo para diferentes nombres)
+        const temps = base.map((m: any) => Number(m.temperature)).filter((t) => !isNaN(t));
         const hums = base
           .map((m: any) => Number(m.humedity ?? m.humidity ?? m.hum))
-          .filter((h: number) => !isNaN(h));
+          .filter((h) => !isNaN(h));
 
-        // 📈 Cálculos promedios, min y max con redondeo
         const avgTemp =
-          temps.length > 0
-            ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(2)
-            : "—";
+          temps.length > 0 ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(2) : "—";
         const avgHum =
-          hums.length > 0
-            ? (hums.reduce((a, b) => a + b, 0) / hums.length).toFixed(2)
-            : "—";
+          hums.length > 0 ? (hums.reduce((a, b) => a + b, 0) / hums.length).toFixed(2) : "—";
 
         const minTemp = temps.length ? Math.min(...temps).toFixed(2) : "—";
         const maxTemp = temps.length ? Math.max(...temps).toFixed(2) : "—";
         const minHum = hums.length ? Math.min(...hums).toFixed(2) : "—";
         const maxHum = hums.length ? Math.max(...hums).toFixed(2) : "—";
 
-        // 🕓 Último registro: si no hay timestamp, mostramos “—”
         const last = base[base.length - 1];
         const lastTs = parseTimestamp(last);
         const lastFormatted = !isNaN(lastTs)
@@ -119,8 +130,8 @@ const ReportPage: React.FC = () => {
             })
           : "—";
 
-        const row: ReportRow = {
-          Zona: friendlyName, // 👈 nombre real de la zona
+        return {
+          Zona: friendlyName,
           "Promedio Temperatura (°C)": avgTemp,
           "Promedio Humedad (%)": avgHum,
           "Temp Mín (°C)": minTemp,
@@ -130,48 +141,74 @@ const ReportPage: React.FC = () => {
           "Último Registro": lastFormatted,
           "Total Registros": base.length,
         };
-
-        return row;
       }
     );
 
     setReportData(aggregated);
   }, [dateRange, historyData]);
 
+  /** 🧩 Manejo de cambios de fecha con validaciones */
+  const handleDateChange = (type: "start" | "end", value: string) => {
+    if (!value) return;
+    let newRange = { ...dateRange, [type]: value };
+    const { start, end } = normalizeRange(newRange.start, newRange.end);
+
+    // Detectar error si hay inversión de rango
+    if (new Date(end) < new Date(start)) {
+      setRangeError("La fecha final no puede ser menor que la inicial.");
+    } else if (new Date(end) > new Date()) {
+      setRangeError("La fecha final no puede ser futura.");
+    } else {
+      setRangeError(null);
+    }
+
+    setDateRange({ start, end });
+  };
+
+  /** 🧾 Mensaje dinámico del periodo */
+  const rangeLabel = useMemo(() => {
+    const startDate = new Date(dateRange.start);
+    const endDate = new Date(dateRange.end);
+    const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
+    return diffDays === 0
+      ? "1 día"
+      : `${diffDays + 1} días de datos`;
+  }, [dateRange]);
+
   return (
     <PageContainer
       title="Reporte de Promedios por Zona"
       description="Analiza los datos históricos de temperatura y humedad por zona. Exporta información detallada o promedios personalizados según tus necesidades."
     >
-      {/* 📆 Controles de rango de fechas */}
+      {/* 📆 Controles de rango */}
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4 items-end bg-white border border-gray-100 rounded-2xl p-5 shadow-sm mb-8 hover:shadow-md transition-all">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <CalendarIcon className="w-5 h-5 text-gray-500" />
             Periodo de análisis:
           </label>
+
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <input
               type="date"
               value={dateRange.start}
-              onChange={(e) =>
-                setDateRange({ start: e.target.value, end: dateRange.end })
-              }
+              onChange={(e) => handleDateChange("start", e.target.value)}
+              max={today}
               className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none flex-1"
             />
             <ArrowRightIcon className="w-5 h-5 text-gray-400 hidden sm:block" />
             <input
               type="date"
               value={dateRange.end}
-              onChange={(e) =>
-                setDateRange({ start: dateRange.start, end: e.target.value })
-              }
+              onChange={(e) => handleDateChange("end", e.target.value)}
+              min={dateRange.start}
+              max={today}
               className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none flex-1"
             />
           </div>
         </div>
 
-        {/* 📤 Botón Exportar */}
+        {/* 📤 Exportación */}
         <div className="flex justify-end w-full sm:w-auto">
           <ExportButton
             data={reportData}
@@ -181,7 +218,20 @@ const ReportPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 📋 Tabla de resultados */}
+      {/* ⚠️ Mensaje de error de rango */}
+      {rangeError && (
+        <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-2 rounded-lg mb-4 text-sm">
+          <ExclamationTriangleIcon className="w-5 h-5 text-yellow-600" />
+          {rangeError}
+        </div>
+      )}
+
+      {/* 🗓️ Resumen de periodo */}
+      <div className="text-sm text-gray-500 mb-3">
+        <strong>Rango seleccionado:</strong> {rangeLabel}
+      </div>
+
+      {/* 📋 Tabla */}
       <ReportTable data={reportData} />
     </PageContainer>
   );
