@@ -1,4 +1,11 @@
-import React, { useContext, useState, useRef, useEffect, useCallback } from "react";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useContext,
+} from "react";
 import {
   ChevronRightIcon,
   MagnifyingGlassIcon,
@@ -7,26 +14,26 @@ import {
   BuildingOfficeIcon,
 } from "@heroicons/react/24/solid";
 import { WeatherContext } from "../../../context/WeatherContext";
+import { locations } from "../../../data/Locations";
 
 const WarehouseList: React.FC = () => {
-  const { allRooms = [], openWarehousePlan } = useContext(WeatherContext);
+  const { openWarehousePlan } = useContext(WeatherContext);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [isMinimized, setIsMinimized] = useState(false);
+  const [style, setStyle] = useState({ left: 20, top: 80 });
 
   const cardRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const pos = useRef({ x: 0, y: 0, left: 20, top: 80 });
-  const [style, setStyle] = useState({ left: 20, top: 80 });
 
-  /** Ajustar posición con límites */
+  /** 🔁 Mantiene el panel dentro de los límites del viewport */
   const adjustPosition = useCallback((newLeft: number, newTop: number) => {
     const panel = cardRef.current;
     if (!panel) return;
-
     const rect = panel.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-
     const maxLeft = vw - rect.width - 8;
     const maxTop = vh - rect.height - 8;
 
@@ -36,7 +43,7 @@ const WarehouseList: React.FC = () => {
     });
   }, []);
 
-  /** Listeners drag */
+  /** 🖱️ Manejo de drag & drop del panel flotante */
   useEffect(() => {
     const move = (e: MouseEvent | TouchEvent) => {
       if (!dragging.current) return;
@@ -46,7 +53,6 @@ const WarehouseList: React.FC = () => {
       const dy = clientY - pos.current.y;
       adjustPosition(pos.current.left + dx, pos.current.top + dy);
     };
-
     const stop = () => (dragging.current = false);
 
     document.addEventListener("mousemove", move);
@@ -67,34 +73,54 @@ const WarehouseList: React.FC = () => {
     pos.current = { x, y, left: style.left, top: style.top };
   };
 
-  /** 🔍 Filtro de búsqueda seguro */
-  const filteredWarehouses = allRooms.filter(
-    (room) =>
-      room?.name &&
-      room.name.toLowerCase().includes(searchQuery.toLowerCase())
+  /** 🧱 Almacenes tomados directamente del archivo `locations.ts` */
+  const warehouses = locations.map((loc) => ({
+    name: loc.name,
+    address: loc.address,
+    phone: loc.phone,
+    hours: loc.hours,
+    position: loc.position,
+    imageUrl: loc.imageUrl,
+  }));
+
+  /** 🔍 Filtro de búsqueda (insensible a mayúsculas y tildes) */
+  const filteredWarehouses = warehouses.filter((w) =>
+    w.name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .includes(
+        searchQuery
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+      )
   );
 
   return (
     <div
       ref={cardRef}
-      className="absolute z-20 w-[85vw] max-w-[280px] sm:max-w-xs"
+      className="absolute z-20 w-[85vw] max-w-[280px] sm:max-w-xs transition-all duration-200"
       style={{ ...style, position: "absolute", touchAction: "none" }}
     >
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden max-h-[50vh] sm:max-h-[70vh] flex flex-col">
-        {/* Header draggable */}
+      {/* Panel principal */}
+      <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden flex flex-col max-h-[65vh] sm:max-h-[70vh] backdrop-blur-sm">
+        {/* 🔹 Header (manejable con drag) */}
         <div
           onMouseDown={(e) => startDrag(e.clientX, e.clientY)}
-          onTouchStart={(e) => startDrag(e.touches[0].clientX, e.touches[0].clientY)}
-          className="relative flex items-center p-3 border-b bg-blue-50 cursor-move select-none"
+          onTouchStart={(e) =>
+            startDrag(e.touches[0].clientX, e.touches[0].clientY)
+          }
+          className="relative flex items-center p-3 border-b bg-blue-50 cursor-move select-none active:bg-blue-100"
         >
-          <div className="flex items-center gap-3 pr-8 w-full">
-            <BuildingOfficeIcon className="w-6 h-6 text-blue-600" />
-            <span className="text-sm sm:text-base font-bold text-gray-800 truncate">
+          <div className="flex items-center gap-2 pr-8 w-full">
+            <BuildingOfficeIcon className="w-5 h-5 text-blue-600" />
+            <span className="text-sm sm:text-base font-semibold text-gray-800 truncate">
               Almacenes
             </span>
           </div>
           <button
-            onClick={() => setIsMinimized(!isMinimized)}
+            onClick={() => setIsMinimized((p) => !p)}
             aria-label={isMinimized ? "Expandir lista" : "Minimizar lista"}
             className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-blue-600 transition"
           >
@@ -106,41 +132,39 @@ const WarehouseList: React.FC = () => {
           </button>
         </div>
 
-        {/* Contenido */}
+        {/* 🔹 Cuerpo del panel */}
         {!isMinimized && (
-          <div className="p-3 space-y-3 flex-1 overflow-y-auto">
-            {/* Buscador */}
+          <div className="p-3 flex-1 overflow-y-auto space-y-3">
+            {/* 🔍 Buscador */}
             <div className="relative">
               <input
                 type="text"
                 placeholder="Buscar almacén..."
-                className="w-full px-4 py-2 pr-10 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+                className="w-full px-4 py-2 pr-10 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base bg-gray-50"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
               <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute right-3 top-2.5 pointer-events-none" />
             </div>
 
-            {/* Lista de almacenes */}
+            {/* 🔹 Lista de almacenes */}
             <ul className="space-y-2">
               {filteredWarehouses.length > 0 ? (
                 filteredWarehouses.map((warehouse, index) => (
                   <li
                     key={index}
                     onClick={() => openWarehousePlan(warehouse.name)}
-                    className="flex items-center justify-between bg-gray-50 hover:bg-blue-100 p-3 rounded-md transition cursor-pointer border border-gray-100 group"
+                    className="flex items-center justify-between bg-gray-50 hover:bg-blue-100 p-3 rounded-lg border border-gray-100 transition cursor-pointer group"
                   >
-                    <span className="text-sm sm:text-base font-medium text-gray-800 group-hover:text-blue-600 truncate">
+                    <span className="text-sm sm:text-base font-medium text-gray-800 group-hover:text-blue-700 truncate">
                       {warehouse.name}
                     </span>
-                    <ChevronRightIcon className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+                    <ChevronRightIcon className="w-4 h-4 text-gray-400 group-hover:text-blue-700 transition" />
                   </li>
                 ))
               ) : (
-                <li className="text-gray-500 text-sm text-center py-2">
-                  {allRooms.length === 0
-                    ? "No hay almacenes disponibles"
-                    : "No se encontraron resultados"}
+                <li className="text-gray-500 text-sm text-center py-3">
+                  No hay almacenes disponibles
                 </li>
               )}
             </ul>

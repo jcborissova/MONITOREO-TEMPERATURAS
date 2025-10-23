@@ -4,17 +4,17 @@ import { API_ENDPOINTS } from "../config/api.config";
 import type { Room, Measure } from "../types/types";
 
 export const sensorsService = {
-  // 🔹 Obtener todos los sensores
+  // Obtener todos los sensores
   async getAllSensors(): Promise<Room[]> {
     try {
       const response = await apiService.get<{ data: any[] }>(API_ENDPOINTS.SENSORS);
-
-      // ⚙️ Mapeamos la estructura del backend al tipo Room
+      // Mapeamos la estructura del backend al tipo Room
       const mappedSensors: Room[] = response.data.map((item) => ({
+        devEUI: item.devEUI ?? null,
         name: item.deviceName,
         temperature: item.temperature ?? 0,
         humedity: item.humedity ?? 0,
-        productivity: item.lastPower ?? 0, // puedes usar esto como "batería" o similar
+        productivity: item.lastPower ?? 0,
         alert: false,
         warning: false,
         top: "0%",
@@ -30,7 +30,7 @@ export const sensorsService = {
     }
   },
 
-  // 🔹 Obtener histórico por devEUI
+  // Obtener histórico por devEUI
   async getSensorHistory(devEUI: string): Promise<Measure[]> {
     try {
       const data = await apiService.get<Measure[]>(API_ENDPOINTS.SENSOR_HISTORY(devEUI));

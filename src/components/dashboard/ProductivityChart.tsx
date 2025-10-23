@@ -18,31 +18,51 @@ interface ProductivityChartProps {
   rooms: Room[];
 }
 
+// 🎨 Paleta amplia con tonos elegantes
+const BASE_COLORS = [
+  "#3B82F6", // azul
+  "#16A34A", // verde
+  "#F59E0B", // amarillo
+  "#EF4444", // rojo
+  "#8B5CF6", // violeta
+  "#0EA5E9", // celeste
+  "#E11D48", // rosado
+  "#14B8A6", // turquesa
+  "#F97316", // naranja
+  "#6366F1", // índigo
+];
+
 const ProductivityChart: React.FC<ProductivityChartProps> = ({ rooms }) => {
-  // 🔹 Preprocesar datos
+  // 🔹 Preprocesar datos con colores dinámicos
   const data = useMemo(() => {
     if (!rooms || rooms.length === 0) return [];
-    return rooms.map((r) => ({
-      name: r.deviceName || r.name || "Zona",
-      productividad: r.productivity ?? 0,
-      fill:
-        (r.productivity ?? 0) >= 90
-          ? "#16a34a"
-          : (r.productivity ?? 0) >= 70
-          ? "#facc15"
-          : "#ef4444",
-    }));
+    return rooms.map((r, i) => {
+      const baseColor = BASE_COLORS[i % BASE_COLORS.length];
+      const p = r.productivity ?? 0;
+
+      // Tono ajustado según productividad
+      let shade = baseColor;
+      if (p >= 90) shade = baseColor; // pleno
+      else if (p >= 70) shade = `${baseColor}99`; // más claro
+      else shade = "#9CA3AF"; // gris neutro
+
+      return {
+        name: r.deviceName || r.name || `Zona ${i + 1}`,
+        productividad: p,
+        fill: shade,
+      };
+    });
   }, [rooms]);
 
   const avgProductivity =
     data.reduce((sum, d) => sum + d.productividad, 0) / (data.length || 1);
 
-  // 🔹 Tooltip adaptativo y elegante
+  // 🔹 Tooltip moderno
   const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
+    if (active && payload?.length) {
       const value = payload[0].value;
       return (
-        <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700 max-w-[180px]">
+        <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700">
           <p className="font-semibold text-gray-900 mb-1 truncate">{label}</p>
           <p>
             Productividad:{" "}
@@ -64,50 +84,44 @@ const ProductivityChart: React.FC<ProductivityChartProps> = ({ rooms }) => {
     return null;
   };
 
-  // 🔹 Sin datos
   if (!data.length)
     return (
-      <div className="flex items-center justify-center h-[220px] sm:h-[260px] md:h-[300px] text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-[260px] text-gray-400 text-sm">
         Sin datos disponibles
       </div>
     );
 
   return (
-    <div className="w-full h-[220px] sm:h-[280px] md:h-[340px] lg:h-[380px]">
+    <div className="w-full h-[260px] sm:h-[320px] md:h-[380px] lg:h-[420px] bg-white border border-gray-200 rounded-2xl shadow-sm p-4">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart
           data={data}
-          margin={{
-            top: 10,
-            right: 15,
-            left: 5,
-            bottom: window.innerWidth < 500 ? 40 : 25,
-          }}
-          barGap={6}
+          margin={{ top: 20, right: 15, left: 10, bottom: 35 }}
+          barGap={8}
         >
+          {/* 🧭 Grid + Ejes */}
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis
             dataKey="name"
             tick={{
-              fontSize: window.innerWidth < 500 ? 10 : 12,
+              fontSize: 12,
               fill: "#6b7280",
+              fontFamily: "Inter, sans-serif",
             }}
-            angle={window.innerWidth < 600 ? -30 : 0}
+            angle={window.innerWidth < 600 ? -25 : 0}
             textAnchor={window.innerWidth < 600 ? "end" : "middle"}
-            height={window.innerWidth < 600 ? 60 : 40}
             interval={0}
+            height={window.innerWidth < 600 ? 50 : 35}
           />
           <YAxis
             domain={[0, 100]}
             tick={{ fontSize: 11, fill: "#6b7280" }}
             tickFormatter={(v) => `${v}%`}
+            axisLine={false}
           />
-          <Tooltip
-            content={<CustomTooltip />}
-            cursor={{ fill: "rgba(0,0,0,0.05)" }}
-          />
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
 
-          {/* 🔹 Línea promedio */}
+          {/* 🔹 Línea de promedio */}
           <ReferenceLine
             y={avgProductivity}
             stroke="#3b82f6"
@@ -121,23 +135,26 @@ const ProductivityChart: React.FC<ProductivityChartProps> = ({ rooms }) => {
             }}
           />
 
-          {/* 🔹 Barras dinámicas */}
+          {/* 🔹 Barras con color dinámico y etiquetas */}
           <Bar
             dataKey="productividad"
-            radius={[8, 8, 0, 0]}
-            maxBarSize={60}
+            radius={[10, 10, 0, 0]}
+            maxBarSize={70}
             isAnimationActive
+            animationDuration={800}
           >
             <LabelList
               dataKey="productividad"
               position="top"
-              formatter={(value: any) =>
-                typeof value === "number" ? `${value.toFixed(0)}%` : value
-              }
+              formatter={(label: any) => {
+                const num = typeof label === "number" ? label : Number(label ?? 0);
+                return isNaN(num) ? "0%" : `${num.toFixed(0)}%`;
+              }}
               style={{
-                fontSize: window.innerWidth < 500 ? 9 : 11,
+                fontSize: 11,
                 fill: "#374151",
                 fontWeight: 500,
+                fontFamily: "Inter, sans-serif",
               }}
             />
             {data.map((entry, index) => (

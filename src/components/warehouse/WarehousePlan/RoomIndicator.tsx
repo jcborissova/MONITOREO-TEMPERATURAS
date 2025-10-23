@@ -32,13 +32,14 @@ const formatUptime = (seconds: number): string => {
   return `${Math.floor(seconds / 86400)} d`;
 };
 
+
+
 const RoomIndicator: React.FC<Props> = ({ room, onExpand, mode = "summary" }) => {
   const badgeColor = room.alert
     ? "bg-red-100 text-red-600"
     : room.warning
     ? "bg-yellow-100 text-yellow-600"
     : "bg-green-100 text-green-600";
-
   const renderDetails = (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
       {/* MÉTRICAS PRINCIPALES */}

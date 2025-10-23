@@ -1,4 +1,5 @@
 // src/components/warehouse/MonitoringInfoPanel.tsx
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
 import { type Room } from "../../../types/types";
 import { format } from "date-fns";
@@ -9,19 +10,29 @@ interface Props {
 
 const MonitoringInfoPanel: React.FC<Props> = ({ rooms }) => {
   const total = rooms.length;
-  const alerts = rooms.filter(r => r.alert).length;
-  const warnings = rooms.filter(r => r.warning && !r.alert).length;
+  const alerts = rooms.filter((r) => r.alert).length;
+  const warnings = rooms.filter((r) => r.warning && !r.alert).length;
   const normal = total - alerts - warnings;
+
   const avgTemp =
     total > 0
-      ? (rooms.reduce((sum, r) => sum + r.temperature, 0) / total).toFixed(1)
+      ? (rooms.reduce((sum, r) => sum + (r.temperature ?? 0), 0) / total).toFixed(1)
       : "--";
 
-  const latestUpdate = rooms.length
-    ? rooms
-        .map(room => new Date(room.updatedAt))
-        .reduce((latest, current) => (current > latest ? current : latest))
-    : null;
+  // ✅ Validar fechas antes de usarlas
+  const validDates = rooms
+    .map((room) => {
+      const d = new Date(room.updatedAt);
+      return isNaN(d.getTime()) ? null : d;
+    })
+    .filter((d): d is Date => d !== null);
+
+  const latestUpdate =
+    validDates.length > 0
+      ? validDates.reduce((latest, current) =>
+          current > latest ? current : latest
+        )
+      : null;
 
   return (
     <div className="bg-white border-t px-6 py-4 text-sm text-gray-700">

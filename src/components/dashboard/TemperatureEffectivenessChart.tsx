@@ -5,12 +5,12 @@ import { Chart } from "react-chartjs-2";
 import { WeatherContext } from "../../context/WeatherContext";
 import type { Measure } from "../../types/types";
 
-// ✅ Registra todos los controladores y elementos (bar, line, pie, etc.)
 ChartJS.register(...registerables);
 
 const TemperatureEffectivenessChart: React.FC = () => {
-  const { allRooms, historyData } = useContext(WeatherContext);
+  const { sensors, historyData } = useContext(WeatherContext);
 
+  // 🔹 Rango ideal (ajustable)
   const MIN_LIMIT = -20;
   const MAX_LIMIT = -5;
 
@@ -19,79 +19,106 @@ const TemperatureEffectivenessChart: React.FC = () => {
     return Math.max(min, Math.min(max, Number(v)));
   };
 
+  // 🔸 Calcular temperatura promedio por sensor / zona
   const avgData = useMemo(() => {
-    if (!historyData || !allRooms?.length) return [];
+    if (!sensors?.length || !historyData) return [];
 
-    return allRooms.map((room) => {
-      const key = room.devEUI ?? room.name;
+    return sensors.map((sensor) => {
+      const key = sensor.devEUI ?? sensor.name;
       const history: Measure[] = historyData[key] || [];
 
       const temps = history
-        .map((h) => clamp((h as any)?.temperature ?? null))
+        .map((h) => clamp((h as any)?.temperature ?? (h as any)?.data?.temperature))
         .filter((v): v is number => v !== null && !isNaN(v));
 
       const avgTemp =
         temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
 
       return {
-        zone: room.deviceName || room.name || key,
+        zone: sensor.deviceName || sensor.name || key,
         avgTemp: Number(avgTemp.toFixed(2)),
       };
     });
-  }, [allRooms, historyData]);
+  }, [sensors, historyData]);
 
+  // 🔹 Estructura de datos para el gráfico
   const labels = avgData.map((d) => d.zone);
   const values = avgData.map((d) => d.avgTemp);
-  const colors = avgData.map((d) =>
-    d.avgTemp < MIN_LIMIT || d.avgTemp > MAX_LIMIT ? "#f59e0b" : "#16a34a"
-  );
 
-  const data: any = {
+  // 🔸 Colores con lógica más elegante (verde dentro del rango, ámbar si cerca del límite, rojo si fuera)
+  const colors = avgData.map((d) => {
+    if (d.avgTemp < MIN_LIMIT - 3 || d.avgTemp > MAX_LIMIT + 3) return "#EF4444"; // rojo
+    if (d.avgTemp < MIN_LIMIT || d.avgTemp > MAX_LIMIT) return "#F59E0B"; // ámbar
+    return "#16A34A"; // verde
+  });
+
+  const data = {
     labels,
     datasets: [
       {
-        type: "bar",
-        label: "Promedio Temperatura (°C)",
+        type: "bar" as const,
+        label: "Promedio de Temperatura (°C)",
         data: values,
         backgroundColor: colors,
-        borderColor: "#111827",
-        borderWidth: 1,
-        barThickness: 40,
+        borderColor: "#1F2937",
+        borderWidth: 0.8,
+        barThickness: 38,
+        borderRadius: 6,
+        hoverBackgroundColor: "#3B82F6",
       },
       {
-        type: "line",
+        type: "line" as const,
         label: "Límite Mínimo",
         data: Array(labels.length).fill(MIN_LIMIT),
         borderColor: "rgba(107,114,128,0.6)",
         borderDash: [6, 4],
+        borderWidth: 1.2,
         pointRadius: 0,
       },
       {
-        type: "line",
+        type: "line" as const,
         label: "Límite Máximo",
         data: Array(labels.length).fill(MAX_LIMIT),
         borderColor: "rgba(107,114,128,0.6)",
         borderDash: [6, 4],
+        borderWidth: 1.2,
         pointRadius: 0,
       },
     ],
   };
 
+  // ⚙️ Configuración visual refinada
   const options: any = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
       legend: {
         position: "bottom",
-        labels: { usePointStyle: true, color: "#374151" },
+        labels: {
+          usePointStyle: true,
+          color: "#374151",
+          font: { size: 13, family: "Inter, sans-serif" },
+        },
       },
       title: {
         display: true,
         text: "Efectividad de Temperatura — Promedio por Zona",
-        font: { size: 14, weight: "bold" },
+        font: { size: 15, weight: "600", family: "Inter, sans-serif" },
+        color: "#111827",
+        padding: { bottom: 15 },
       },
       tooltip: {
+        mode: "index",
+        intersect: false,
+        backgroundColor: "#111827",
+        titleColor: "#fff",
+        bodyColor: "#e5e7eb",
+        borderColor: "#4B5563",
+        borderWidth: 1,
+        cornerRadius: 6,
+        displayColors: false,
         callbacks: {
+          title: (ctx: any) => ctx[0].label,
           label: (ctx: any) =>
             `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(1)} °C`,
         },
@@ -99,23 +126,38 @@ const TemperatureEffectivenessChart: React.FC = () => {
     },
     scales: {
       x: {
-        title: { display: true, text: "Zona", color: "#6b7280" },
+        title: { display: true, text: "Zona", color: "#6B7280" },
         grid: { color: "rgba(0,0,0,0.05)" },
-        ticks: { color: "#6b7280" },
+        ticks: {
+          color: "#6B7280",
+          font: { size: 12, family: "Inter, sans-serif" },
+          maxRotation: 45,
+          minRotation: 0,
+        },
       },
       y: {
         min: -40,
         max: 80,
-        title: { display: true, text: "°C", color: "#6b7280" },
-        ticks: { stepSize: 10, color: "#6b7280" },
+        title: { display: true, text: "°C", color: "#6B7280" },
+        ticks: {
+          stepSize: 10,
+          color: "#6B7280",
+          font: { size: 12, family: "Inter, sans-serif" },
+        },
         grid: { color: "rgba(0,0,0,0.05)" },
       },
     },
+    animation: {
+      duration: 800,
+      easing: "easeOutCubic",
+    },
   };
 
+  const hasData = avgData.length > 0;
+
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 h-[400px]">
-      {avgData.length > 0 ? (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 h-[400px]">
+      {hasData ? (
         <Chart type="bar" data={data} options={options} />
       ) : (
         <div className="flex items-center justify-center h-full text-gray-400">

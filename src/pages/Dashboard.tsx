@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useContext, useRef, useState, useEffect } from "react";
 import { WeatherContext } from "../context/WeatherContext";
+import { SensorsContext } from "../context/SensorsContext";
 import DashboardKPIs from "../components/dashboard/DashboardKPIs";
 import ProductivityChart from "../components/dashboard/ProductivityChart";
 import StatusPieChart from "../components/dashboard/StatusPieChart";
@@ -14,10 +15,17 @@ import jsPDF from "jspdf";
 import { ArrowPathIcon, ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 
 const Dashboard: React.FC = () => {
-  const { allRooms, refreshData } = useContext(WeatherContext);
-  const hasData = allRooms && allRooms.length > 0;
-  const dashboardRef = useRef<HTMLDivElement>(null);
+  const { refreshData } = useContext(WeatherContext);
+  const { sensors } = useContext(SensorsContext);
 
+  // ✅ Solo sensores válidos (no almacén)
+  const activeSensors = sensors.filter((s) => {
+    const n = (s.name || (s as any).deviceName || "").toLowerCase();
+    return !n.includes("almacén") && !n.includes("almacen") && !n.includes("warehouse");
+  });
+
+  const hasData = activeSensors.length > 0;
+  const dashboardRef = useRef<HTMLDivElement>(null);
   const [currentTime, setCurrentTime] = useState<string>("");
 
   useEffect(() => {
@@ -39,6 +47,7 @@ const Dashboard: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
+  /** 📤 Exportar tablero a PNG o PDF */
   const exportDashboard = async (format: "image" | "pdf") => {
     if (!dashboardRef.current) return;
     try {
@@ -68,17 +77,18 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const total = allRooms?.length ?? 0;
-  const critical = allRooms?.filter((r) => r.alert).length ?? 0;
-  const warning = allRooms?.filter((r) => !r.alert && r.warning).length ?? 0;
+  /** 📊 Totales */
+  const total = activeSensors.length;
+  const critical = activeSensors.filter((r) => r.alert).length;
+  const warning = activeSensors.filter((r) => !r.alert && r.warning).length;
   const normal = total - (critical + warning);
 
   return (
     <PageContainer
       title="Dashboard General"
-      description="Monitorea el estado general de las zonas, niveles de temperatura y humedad."
+      description="Monitorea el estado general de los sensores, niveles de temperatura y humedad."
     >
-      {/* 🔹 Encabezado del tablero */}
+      {/* Encabezado */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
           <h2 className="text-base md:text-lg font-semibold text-gray-800">
@@ -112,7 +122,7 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* 🔹 Resumen compacto */}
+      {/* KPIs rápidos */}
       {hasData && (
         <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-3 mb-6 text-center">
           <div className="bg-gray-50 py-2 rounded-lg border border-gray-200">
@@ -136,7 +146,7 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
-      {/* 🔹 Contenido principal */}
+      {/* Contenido principal */}
       <div ref={dashboardRef} className="space-y-6">
         {!hasData ? (
           <div className="bg-white text-center py-12 rounded-lg border border-gray-200 text-gray-500">
@@ -144,34 +154,36 @@ const Dashboard: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* KPIs */}
-            <DashboardKPIs rooms={allRooms} />
+            {/* KPIs superiores */}
+            <DashboardKPIs rooms={activeSensors} />
 
-            {/* Gráficos */}
-            <Card title="Temperatura y Humedad por Zona">
+            {/* Gráfico principal */}
+            <Card title="Temperatura y Humedad por Sensor">
               <div className="overflow-x-auto max-w-full">
                 <MultiSensorChart />
               </div>
             </Card>
 
+            {/* Efectividad de temperatura */}
             <Card title="Efectividad Promedio de Temperatura">
               <TemperatureEffectivenessChart />
             </Card>
 
+            {/* Productividad + Estados */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              <Card title="Productividad por Zona">
-                <ProductivityChart rooms={allRooms} />
+              <Card title="Productividad por Sensor">
+                <ProductivityChart rooms={activeSensors} />
               </Card>
 
-              <Card title="Estado General de Zonas">
-                <StatusPieChart rooms={allRooms} />
+              <Card title="Estado General de Sensores">
+                <StatusPieChart rooms={activeSensors} />
               </Card>
             </div>
 
-            {/* Tabla final */}
-            <Card title="Resumen Detallado de Zonas">
+            {/* Tabla resumen */}
+            <Card title="Resumen Detallado de Sensores">
               <div className="overflow-x-auto">
-                <ZonesTable rooms={allRooms} />
+                <ZonesTable rooms={activeSensors} />
               </div>
             </Card>
           </>
