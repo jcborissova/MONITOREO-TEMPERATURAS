@@ -42,12 +42,24 @@ ChartJS.register(
 
 /** 🎨 Genera un color HSL distinto para cada sensor */
 const generateColor = (index: number, alpha = 1): string => {
-  const hue = (index * 137.508) % 360; // separación dorada
+  const hue = (index * 137.508) % 360;
   return `hsla(${hue}, 70%, 55%, ${alpha})`;
 };
 
+/** 🔢 Genera divisiones de tiempo equidistantes tomando la hora actual como referencia */
+const generateTimeSegments = (hours: number, divisions: number): string[] => {
+  const now = new Date();
+  const result: string[] = [];
+  const interval = (hours * 60 * 60 * 1000) / divisions;
+  for (let i = divisions - 1; i >= 0; i--) {
+    result.push(new Date(now.getTime() - i * interval).toISOString());
+  }
+  return result;
+};
+
+/** 🔒 Asegura valores válidos */
 const clamp = (v: number | null | undefined, min = -40, max = 110) => {
-  if (v == null || Number.isNaN(v as number)) return null;
+  if (v == null || Number.isNaN(v)) return null;
   return Math.max(min, Math.min(max, Number(v)));
 };
 
@@ -55,37 +67,31 @@ const MultiSensorChart: React.FC = () => {
   const { sensors, historyData } = useContext(WeatherContext);
   const [showTemp, setShowTemp] = useState(true);
   const [showHum, setShowHum] = useState(true);
-  const [rangeType, setRangeType] = useState<"30min" | "1h" | "3h" | "all" | "custom">("1h");
+  const [rangeType, setRangeType] = useState<"24h" | "7d" | "30d" | "custom" | "all">("7d");
   const [customRange, setCustomRange] = useState<{ start: string; end: string }>({
     start: "",
     end: "",
   });
-  const chartRef = useRef<any>(null); // ✅ referencia al gráfico
+  const chartRef = useRef<any>(null);
 
-  /** 🔹 Consolidar datos históricos */
+  /** 🔹 Unificar datos históricos */
   const unified = useMemo(() => {
     const timeSet = new Set<string>();
-    const series: Record<string, { temperature: (number | null)[]; humidity: (number | null)[] }> =
-      {};
+    const series: Record<string, { temperature: (number | null)[]; humidity: (number | null)[] }> = {};
 
     sensors.forEach((sensor) => {
       const key = sensor.devEUI ?? sensor.name;
       if (!key) return;
       const history: Measure[] = historyData[key] || [];
       history.forEach((h) => {
-        const raw =
-          (h as any)?.timestamp ??
-          (h as any)?.created_at ??
-          (h as any)?.updatedAt ??
-          (h as any)?.date;
+        const raw = (h as any)?.timestamp ?? (h as any)?.created_at ?? (h as any)?.updatedAt ?? (h as any)?.date;
         if (!raw) return;
         const t = new Date(String(raw).replace(" ", "T"));
-        if (!Number.isNaN(t.getTime())) timeSet.add(t.toISOString());
+        if (!isNaN(t.getTime())) timeSet.add(t.toISOString());
       });
     });
 
     const times = Array.from(timeSet).sort((a, b) => a.localeCompare(b));
-
     sensors.forEach((sensor) => {
       const key = sensor.devEUI ?? sensor.name;
       const label = sensor.deviceName || sensor.name || key;
@@ -94,23 +100,13 @@ const MultiSensorChart: React.FC = () => {
 
       times.forEach((iso) => {
         const found = history.find((m) => {
-          const raw =
-            (m as any)?.timestamp ??
-            (m as any)?.created_at ??
-            (m as any)?.updatedAt ??
-            (m as any)?.date;
+          const raw = (m as any)?.timestamp ?? (m as any)?.created_at ?? (m as any)?.updatedAt ?? (m as any)?.date;
           if (!raw) return false;
-          const tm = new Date(String(raw).replace(" ", "T"));
-          return !Number.isNaN(tm.getTime()) && tm.toISOString() === iso;
+          return new Date(String(raw).replace(" ", "T")).toISOString() === iso;
         });
 
         const tVal = clamp(found?.temperature ?? (found as any)?.data?.temperature);
-        const hVal = clamp(
-          (found as any)?.humidity ??
-            (found as any)?.humedity ??
-            (found as any)?.data?.humidity
-        );
-
+        const hVal = clamp((found as any)?.humidity ?? (found as any)?.humedity ?? (found as any)?.data?.humidity);
         series[label].temperature.push(tVal);
         series[label].humidity.push(hVal);
       });
@@ -119,83 +115,94 @@ const MultiSensorChart: React.FC = () => {
     return { time: times, series };
   }, [sensors, historyData]);
 
-  /** 🔹 Filtrado por rango */
+  /** 🔹 Segmentos de tiempo según rango */
   const filtered = useMemo(() => {
     if (!unified.time.length) return unified;
-    let startTime: number | null = null;
-    let endTime: number | null = null;
 
-    const lastTime = new Date(unified.time[unified.time.length - 1]).getTime();
+    let hours = 24;
+    let divisions = 48; // Default 24h
 
     switch (rangeType) {
-      case "30min":
-        startTime = lastTime - 30 * 60 * 1000;
+      case "24h":
+        hours = 24;
+        divisions = 48;
         break;
-      case "1h":
-        startTime = lastTime - 60 * 60 * 1000;
+      case "7d":
+        hours = 7 * 24;
+        divisions = 56;
         break;
-      case "3h":
-        startTime = lastTime - 3 * 60 * 60 * 1000;
+      case "30d":
+        hours = 30 * 24;
+        divisions = 60;
         break;
       case "custom":
         if (customRange.start && customRange.end) {
-          startTime = new Date(customRange.start).getTime();
-          endTime = new Date(customRange.end).getTime();
+          const start = new Date(customRange.start);
+          const end = new Date(customRange.end);
+          const diffHours = (end.getTime() - start.getTime()) / 3600000;
+          if (diffHours <= 24) divisions = 48;
+          else if (diffHours <= 24 * 7) divisions = 56;
+          else divisions = 60;
+          hours = diffHours;
+        } else {
+          return unified;
         }
         break;
+      case "all":
+        return unified;
     }
 
-    const filteredTime = unified.time.filter((t) => {
-      const ts = new Date(t).getTime();
-      if (startTime && !endTime) return ts >= startTime;
-      if (startTime && endTime) return ts >= startTime && ts <= endTime;
-      return true;
-    });
-
+    const timeSegments = generateTimeSegments(hours, divisions);
     const filteredSeries: typeof unified.series = {};
+
     Object.entries(unified.series).forEach(([sensor, values]) => {
-      const startIdx = unified.time.findIndex((t) => t === filteredTime[0]);
-      const endIdx = unified.time.findIndex((t) => t === filteredTime[filteredTime.length - 1]);
-      filteredSeries[sensor] = {
-        temperature: values.temperature.slice(startIdx, endIdx + 1),
-        humidity: values.humidity.slice(startIdx, endIdx + 1),
-      };
+      filteredSeries[sensor] = { temperature: [], humidity: [] };
+
+      timeSegments.forEach((time) => {
+        const closestIdx = unified.time.findIndex(
+          (t) => Math.abs(new Date(t).getTime() - new Date(time).getTime()) < 90 * 60 * 1000
+        ); // tolerancia 1.5h
+        if (closestIdx !== -1) {
+          filteredSeries[sensor].temperature.push(values.temperature[closestIdx]);
+          filteredSeries[sensor].humidity.push(values.humidity[closestIdx]);
+        } else {
+          filteredSeries[sensor].temperature.push(null);
+          filteredSeries[sensor].humidity.push(null);
+        }
+      });
     });
 
-    return { time: filteredTime, series: filteredSeries };
-  }, [unified, rangeType, customRange]);
+    return { time: timeSegments, series: filteredSeries };
+  }, [unified, rangeType, customRange.start, customRange.end]);
 
-  /** 🎨 Datasets con color y estilo únicos */
+  /** 🎨 Datasets */
   const datasets = useMemo(() => {
     const sets: any[] = [];
     Object.entries(filtered.series).forEach(([sensor, values], idx) => {
-      const base = generateColor(idx);
+      const color = generateColor(idx);
       const faded = generateColor(idx, 0.1);
 
       if (showTemp)
         sets.push({
           label: `${sensor} · °C`,
           data: values.temperature,
-          borderColor: base,
+          borderColor: color,
           backgroundColor: faded,
           fill: true,
           borderWidth: 2,
           tension: 0.35,
-          pointRadius: 1,
-          pointHoverRadius: 4,
-          pointHoverBackgroundColor: base,
+          pointRadius: 0,
         });
+
       if (showHum)
         sets.push({
           label: `${sensor} · %RH`,
           data: values.humidity,
-          borderColor: base,
+          borderColor: color,
           borderDash: [6, 4],
           borderWidth: 1.5,
-          fill: false,
           tension: 0.35,
-          pointRadius: 1,
-          pointHoverRadius: 4,
+          pointRadius: 0,
         });
     });
     return sets;
@@ -206,14 +213,10 @@ const MultiSensorChart: React.FC = () => {
     datasets,
   };
 
-  /** ⚙️ Opciones interactivas avanzadas */
+  /** ⚙️ Configuración del gráfico */
   const chartOptions: ChartOptions<"line"> & { plugins?: any } = {
     responsive: true,
     maintainAspectRatio: false,
-    interaction: {
-      mode: "nearest",
-      intersect: false,
-    },
     plugins: {
       title: {
         display: true,
@@ -223,64 +226,25 @@ const MultiSensorChart: React.FC = () => {
       },
       legend: {
         position: "bottom",
-        labels: {
-          usePointStyle: true,
-          padding: 16,
-          font: { size: 12 },
-        },
-      },
-      tooltip: {
-        enabled: true,
-        backgroundColor: "rgba(17,24,39,0.9)",
-        borderColor: "#e5e7eb",
-        borderWidth: 1,
-        padding: 10,
-        displayColors: true,
-        callbacks: {
-          title: (items) => {
-            const x = items?.[0]?.parsed?.x;
-            if (x == null) return "";
-            return new Date(x).toLocaleTimeString("es-DO", {
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-          },
-          label: (item) => {
-            const val = item.parsed.y;
-            const unit = item.dataset.label?.includes("%RH") ? "%RH" : "°C";
-            return `${item.dataset.label}: ${val?.toFixed(1)} ${unit}`;
-          },
-        },
+        labels: { usePointStyle: true, padding: 12, font: { size: 12 } },
       },
       zoom: {
-        zoom: {
-          wheel: { enabled: true },
-          pinch: { enabled: true },
-          drag: { enabled: false },
-          mode: "x",
-        },
-        pan: {
-          enabled: true,
-          mode: "x",
-        },
+        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
+        pan: { enabled: true, mode: "x" },
       },
     },
     scales: {
       x: {
         type: "time",
-        time: { unit: "minute", displayFormats: { minute: "HH:mm" } },
-        ticks: { color: "#6b7280", maxRotation: 0 },
+        time: { unit: "hour", displayFormats: { hour: "dd/MM HH:mm" } },
+        ticks: { color: "#6b7280" },
         grid: { color: "rgba(0,0,0,0.05)" },
       },
       y: {
         min: -40,
         max: 110,
-        title: {
-          display: true,
-          text: "Nivel (°C / %RH)",
-          color: "#111827",
-        },
         ticks: { stepSize: 10, color: "#6b7280" },
+        title: { display: true, text: "°C / %RH", color: "#111827" },
         grid: { color: "rgba(0,0,0,0.05)" },
       },
     },
@@ -296,7 +260,7 @@ const MultiSensorChart: React.FC = () => {
       <div className="flex flex-wrap items-center gap-3 mb-3">
         <button
           onClick={() => setShowTemp(!showTemp)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
             showTemp ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"
           }`}
         >
@@ -304,43 +268,40 @@ const MultiSensorChart: React.FC = () => {
         </button>
         <button
           onClick={() => setShowHum(!showHum)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
             showHum ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
           }`}
         >
           <CloudIcon className="w-4 h-4" /> Humedad
         </button>
         <button
-          onClick={() => {
-            const chart = chartRef.current;
-            if (chart && chart.resetZoom) chart.resetZoom(); // ✅ solo resetea el zoom
-          }}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm bg-gray-100 hover:bg-gray-200 text-gray-600 font-medium transition"
+          onClick={() => chartRef.current?.resetZoom()}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm bg-gray-100 text-gray-600"
         >
           <ArrowPathIcon className="w-4 h-4" /> Reset Zoom
         </button>
 
         {/* 🔹 Selector de rango */}
         <div className="flex flex-wrap items-center gap-2 ml-auto">
-          {["30min", "1h", "3h", "all", "custom"].map((opt) => (
+          {["24h", "7d", "30d", "custom", "all"].map((opt) => (
             <button
               key={opt}
               onClick={() => setRangeType(opt as any)}
-              className={`px-3 py-1.5 text-xs rounded-full font-medium border transition ${
+              className={`px-3 py-1.5 text-xs rounded-full font-medium border ${
                 rangeType === opt
-                  ? "bg-gray-900 text-white border-gray-900 shadow-sm"
-                  : "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
+                  ? "bg-gray-900 text-white border-gray-900"
+                  : "bg-gray-100 text-gray-600 border-gray-200"
               }`}
             >
-              {opt === "30min"
-                ? "30 min"
-                : opt === "1h"
-                ? "1 hora"
-                : opt === "3h"
-                ? "3 horas"
-                : opt === "all"
-                ? "Todo"
-                : "Personalizado"}
+              {opt === "24h"
+                ? "24 horas"
+                : opt === "7d"
+                ? "7 días"
+                : opt === "30d"
+                ? "30 días"
+                : opt === "custom"
+                ? "Personalizado"
+                : "Todo"}
             </button>
           ))}
         </div>
