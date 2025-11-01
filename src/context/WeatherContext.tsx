@@ -52,7 +52,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [climateData, setClimateData] = useState<ClimateData | null>(null);
   const [selectedWarehouse, setSelectedWarehouse] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true); // ✅ ahora se usa realmente
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // 📍 Genera una posición pseudoestable para cada sensor (para visualización en plano)
   const getStablePosition = (name: string) => {
@@ -79,7 +79,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
         ? payload.data
         : [];
 
-      const baseLoc = locations[0]; // ✅ Por ahora un solo almacén base
+      const baseLoc = locations[0];
 
       const enriched = sensorList.map((s, idx) => {
         const layout =
@@ -138,7 +138,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
       console.error("Error cargando sensores:", err);
       setSensors([]);
     } finally {
-      setIsLoading(false); // ✅ asegura siempre el cambio
+      setIsLoading(false);
     }
   };
 

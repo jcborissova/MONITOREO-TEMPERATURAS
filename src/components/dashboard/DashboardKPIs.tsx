@@ -1,8 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import React from "react";
 import { Warehouse, AlertTriangle, Activity, Droplet } from "lucide-react";
-import type { Room } from "../../types/types"; // ✅ usa tu tipo global
- // ✅ usa tu tipo global
+import type { Room } from "../../types/types";
 
 interface DashboardKPIsProps {
   rooms: Room[];

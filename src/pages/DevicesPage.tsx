@@ -15,23 +15,14 @@ import { WeatherContext } from "../context/WeatherContext";
 import ResponsiveTable from "../components/ui/ResponsiveTable";
 import type { Room, Measure } from "../types/types";
 
-/** Persistencia local simple de umbrales por dispositivo */
-interface DeviceThresholds {
-  id: string;
-  maxTemp?: number;
-  minTemp?: number;
-}
-
-/** Util: normaliza valores de fecha muy comunes en payloads */
+/** Util: normaliza fechas */
 const normalizeDate = (value: any): string => {
   if (!value) return new Date().toISOString();
   if (typeof value === "number") {
-    // segundos vs milisegundos
     const ms = value < 9_999_999_999 ? value * 1000 : value;
     return new Date(ms).toISOString();
   }
   if (typeof value === "string") {
-    // "2025-10-22 13:05:00" -> "2025-10-22T13:05:00"
     const s = value.includes(" ") ? value.replace(" ", "T") : value;
     const d = new Date(s);
     return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
@@ -40,7 +31,7 @@ const normalizeDate = (value: any): string => {
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 };
 
-/** Util: battery rendering usando campos comunes */
+/** UI helpers */
 const renderBattery = (level?: number) => {
   if (level == null || Number.isNaN(level)) return "—";
   if (level >= 80) {
@@ -64,7 +55,6 @@ const renderBattery = (level?: number) => {
   );
 };
 
-/** Util: estado de conexión con semáforo */
 const renderConnectionStatus = (updatedAt?: string | Date) => {
   if (!updatedAt) {
     return (
@@ -95,71 +85,50 @@ const DevicesPage: React.FC = () => {
   const { historyData } = useContext(WeatherContext);
 
   const [selectedDevice, setSelectedDevice] = useState<Room | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  /** Filtra cualquier entrada que sea claramente el almacén */
+  // 👉 id real que pasa al modal (el modal se encarga de consultar el API)
+  const [configDeviceId, setConfigDeviceId] = useState<string>("");
+
+  // Quitamos el “almacén” de esta tabla (si aplica)
   const tableData = (sensors || []).filter((s) => {
     const n = (s.name || (s as any).deviceName || "").toLowerCase();
     return !n.includes("almacén") && !n.includes("almacen") && !n.includes("warehouse");
   });
 
-  /** Umbrales */
-  const handleSaveThresholds = (
-    id: string,
-    maxTemp: number,
-    minTemp: number
-  ) => {
-    try {
-      const raw = localStorage.getItem("device_thresholds");
-      const parsed: DeviceThresholds[] = raw ? JSON.parse(raw) : [];
-      const updated = parsed.filter((t) => t.id !== id);
-      updated.push({ id, maxTemp, minTemp });
-      localStorage.setItem("device_thresholds", JSON.stringify(updated));
-    } catch {
-      /* noop */
-    }
-  };
-
-  /** Refresco manual */
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await refreshSensors();
     setIsRefreshing(false);
   };
 
-  /** Mapea histórico para el modal de detalles */
   const handleViewDetails = (row: Room) => {
-    // El key de histórico preferido es devEUI; si no, por nombre
     const keyByEui = row.devEUI ?? null;
     const keyByName = row.name ?? (row as any).deviceName ?? null;
-
     const rawList: any[] =
       (keyByEui && historyData[keyByEui]) ||
       (keyByName && historyData[keyByName]) ||
       [];
-
-    const parsedHistory: Measure[] = rawList.map((m: any) => ({
-      timestamp: normalizeDate(
-        m.timestamp || m.created_at || m.time || m.date || m.updatedAt
-      ),
+    const parsed: Measure[] = rawList.map((m: any) => ({
+      timestamp: normalizeDate(m.timestamp || m.created_at || m.time || m.date || m.updatedAt),
       temperature: Number(m.temperature ?? 0),
       humedity: Number(m.humedity ?? m.humidity ?? m.data?.humidity ?? 0),
       productivity: Number(m.productivity ?? 0),
     }));
-
-    setSelectedDevice({ ...row, history: parsedHistory });
+    setSelectedDevice({ ...row, history: parsed });
     setIsDetailsOpen(true);
   };
 
-  /** Abre modal de configuración */
   const handleOpenConfig = (row: Room) => {
-    setSelectedDevice(row);
-    setIsModalOpen(true);
+    const id =
+      row.devEUI ||
+      row.name ||
+      (row as any).deviceName ||
+      "";
+    setConfigDeviceId(String(id));
   };
 
-  /** Conjunto de acciones de fila */
   const handleTableAction = (action: string, row: Room) => {
     if (action === "details") return handleViewDetails(row);
     if (action === "edit") return handleOpenConfig(row);
@@ -179,14 +148,12 @@ const DevicesPage: React.FC = () => {
             isRefreshing ? "opacity-70 cursor-wait" : ""
           }`}
         >
-          <ArrowPathIcon
-            className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`}
-          />
+          <ArrowPathIcon className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`} />
           {isRefreshing ? "Actualizando..." : "Refrescar datos"}
         </button>
       </div>
 
-      {/* Tabla de dispositivos */}
+      {/* Tabla */}
       <ResponsiveTable
         title="Dispositivos Activos"
         data={tableData}
@@ -209,7 +176,9 @@ const DevicesPage: React.FC = () => {
                   {row.name || (row as any).deviceName || "Sensor"}
                 </div>
                 <div className="text-xs text-gray-500">
-                  {row.devEUI ? `UID: ${row.devEUI}` : "UID no disponible"}
+                  {(row.devEUI || (row as any).deviceName)
+                    ? `UID: ${row.devEUI || (row as any).deviceName}`
+                    : "UID no disponible"}
                 </div>
               </div>
             ),
@@ -218,7 +187,6 @@ const DevicesPage: React.FC = () => {
             key: "battery",
             label: "Batería",
             align: "left",
-            // soporta varias claves posibles: battery, lastPower, productivity (si así venía)
             render: (_v, row) =>
               renderBattery(
                 Number(
@@ -246,14 +214,8 @@ const DevicesPage: React.FC = () => {
             label: "Humedad (%RH)",
             align: "right",
             render: (v, row) => {
-              const h =
-                v ??
-                (row as any).humidity ??
-                (row as any).data?.humidity ??
-                null;
-              return h != null && !Number.isNaN(h)
-                ? Number(h).toFixed(1)
-                : "—";
+              const h = v ?? (row as any).humidity ?? (row as any).data?.humidity ?? null;
+              return h != null && !Number.isNaN(h) ? Number(h).toFixed(1) : "—";
             },
           },
         ]}
@@ -261,22 +223,19 @@ const DevicesPage: React.FC = () => {
 
       {/* Modales */}
       {selectedDevice && (
-        <>
-          <AlertThresholdModal
-            isOpen={isModalOpen}
-            onClose={() => setIsModalOpen(false)}
-            deviceId={selectedDevice.name}
-            currentMax={undefined}
-            currentMin={undefined}
-            onSave={handleSaveThresholds}
-          />
-          <DeviceDetailsModal
-            isOpen={isDetailsOpen}
-            onClose={() => setIsDetailsOpen(false)}
-            device={selectedDevice}
-          />
-        </>
+        <DeviceDetailsModal
+          isOpen={isDetailsOpen}
+          onClose={() => setIsDetailsOpen(false)}
+          device={selectedDevice}
+        />
       )}
+
+      {/* Modal de umbrales: hace fetch individual cuando se abre */}
+      <AlertThresholdModal
+        isOpen={!!configDeviceId}
+        deviceId={configDeviceId}
+        onClose={() => setConfigDeviceId("")}
+      />
     </PageContainer>
   );
 };

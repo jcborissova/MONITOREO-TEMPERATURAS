@@ -9,6 +9,7 @@ import {
   ComputerDesktopIcon,
   DocumentChartBarIcon,
   XMarkIcon,
+  BellIcon,
 } from "@heroicons/react/24/solid";
 import AuthService from "../../services/auth.service";
 
@@ -101,6 +102,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
             to="/report"
             label="Reporte"
             icon={<DocumentChartBarIcon className="w-6 h-6" />}
+            isOpen={isOpen}
+            onNavigate={toggleSidebar}
+          />
+          <SidebarLink
+            to="/notifications"
+            label="Notificaciones"
+            icon={<BellIcon className="w-6 h-6" />}
             isOpen={isOpen}
             onNavigate={toggleSidebar}
           />

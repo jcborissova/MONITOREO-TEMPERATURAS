@@ -11,6 +11,7 @@ import WarehousePlanModal from "./components/warehouse/WarehousePlan/WarehousePl
 import Login from "./pages/Login";
 import PrivateRoute from "./components/auth/PrivateRoute";
 import ReportPage from "./pages/ReportPage";
+import NotificationsPage from "./pages/NotificationsPage";
 
 const App: React.FC = () => {
   return (
@@ -42,6 +43,7 @@ const App: React.FC = () => {
           <Route path="warehouses" element={<Warehouses />} />
           <Route path="devices" element={<Devices />} />
           <Route path="report" element={<ReportPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
         </Route>
 
         {/* 🔹 Cualquier otra ruta → redirige */}

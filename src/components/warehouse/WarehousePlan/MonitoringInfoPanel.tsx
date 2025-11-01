@@ -19,7 +19,6 @@ const MonitoringInfoPanel: React.FC<Props> = ({ rooms }) => {
       ? (rooms.reduce((sum, r) => sum + (r.temperature ?? 0), 0) / total).toFixed(1)
       : "--";
 
-  // ✅ Validar fechas antes de usarlas
   const validDates = rooms
     .map((room) => {
       const d = new Date(room.updatedAt);

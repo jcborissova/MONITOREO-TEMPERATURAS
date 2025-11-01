@@ -18,7 +18,6 @@ const Dashboard: React.FC = () => {
   const { refreshData } = useContext(WeatherContext);
   const { sensors } = useContext(SensorsContext);
 
-  // ✅ Solo sensores válidos (no almacén)
   const activeSensors = sensors.filter((s) => {
     const n = (s.name || (s as any).deviceName || "").toLowerCase();
     return !n.includes("almacén") && !n.includes("almacen") && !n.includes("warehouse");

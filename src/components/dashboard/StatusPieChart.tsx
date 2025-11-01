@@ -21,7 +21,6 @@ interface StatusPieChartProps {
 }
 
 const StatusPieChart: React.FC<StatusPieChartProps> = ({ rooms }) => {
-  // ✅ Procesamiento de datos
   const { pieData, total, zoneGroups } = useMemo(() => {
     const criticalZones = rooms.filter((r) => r.alert);
     const warningZones = rooms.filter((r) => !r.alert && r.warning);
@@ -51,8 +50,6 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({ rooms }) => {
       </div>
     );
   }
-
-  // ✅ Tooltip personalizado
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const { name, value, fill } = payload[0];
@@ -72,7 +69,6 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({ rooms }) => {
     return null;
   };
 
-  // ✅ Render principal
   return (
     <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-4 md:p-6 space-y-4">
       {/* 🔹 Título */}
