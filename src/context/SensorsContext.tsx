@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useState, useEffect, useRef, type ReactNode } from "react";
 import type { Room, Measure } from "../types/types";
 import { sensorsService } from "../services/sensors.service";
@@ -38,7 +39,7 @@ export const SensorsProvider: React.FC<{ children: ReactNode }> = ({ children })
       data.forEach((s) => (newHistory[s.name] = s.history || []));
       setHistory(newHistory);
     } catch (error) {
-      console.error("❌ Error obteniendo sensores:", error);
+      console.error("Error obteniendo sensores:", error);
     }
   };
 
@@ -49,7 +50,7 @@ export const SensorsProvider: React.FC<{ children: ReactNode }> = ({ children })
         setHistory((prev) => ({ ...prev, [devEUI]: data }));
       }
     } catch (error) {
-      console.error("❌ Error obteniendo histórico:", error);
+      console.error("Error obteniendo histórico:", error);
     }
   };
 

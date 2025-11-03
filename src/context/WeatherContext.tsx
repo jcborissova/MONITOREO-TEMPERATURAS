@@ -1,5 +1,4 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useState, useEffect, type ReactNode } from "react";
@@ -54,7 +53,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // 📍 Genera una posición pseudoestable para cada sensor (para visualización en plano)
+  // Genera una posición pseudoestable para cada sensor (para visualización en plano)
   const getStablePosition = (name: string) => {
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
@@ -66,7 +65,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     return { top, left };
   };
 
-  // 🌡️ Obtiene sensores y su historial de mediciones
+  // Obtiene sensores y su historial de mediciones
   const fetchSensors = async () => {
     setIsLoading(true);
     try {
@@ -143,16 +142,16 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
   };
 
   useEffect(() => {
-    // ⏱️ Carga inicial de sensores
+    // Carga inicial de sensores
     fetchSensors();
   }, []);
 
-  // 🔁 Refresca datos manualmente (por ejemplo, botón “Actualizar”)
+  // Refresca datos manualmente (por ejemplo, botón “Actualizar”)
   const refreshData = async () => {
     await fetchSensors();
   };
 
-  // 🏢 Abre el plano interactivo del almacén
+  // Abre el plano interactivo del almacén
   const openWarehousePlan = (name: string) => {
     const loc = locations.find((l) => l.name === name);
     if (!loc) return;
@@ -172,14 +171,14 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     setClimateData({ rooms: sensors });
   };
 
-  // ❌ Cierra el modal y limpia estado
+  // Cierra el modal y limpia estado
   const closeWarehousePlan = () => {
     setSelectedWarehouse(null);
     setIsModalOpen(false);
     setClimateData(null);
   };
 
-  // 🧩 Contexto global expuesto
+  // Contexto global expuesto
   return (
     <WeatherContext.Provider
       value={{

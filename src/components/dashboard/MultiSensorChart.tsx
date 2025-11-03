@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useMemo, useState, useRef } from "react";
+import React, { useContext, useMemo, useRef, useState } from "react";
 import {
   Chart as ChartJS,
   LineElement,
@@ -48,34 +48,34 @@ ChartJS.register(
 );
 
 /* =========================
-   Helpers robustos de UI
+   Helpers
 ========================= */
 
-/** 🎨 Color HSL estable por índice */
+type RangeType = "24h" | "7d" | "30d" | "custom" | "all";
+
+/** Color HSL estable por índice */
 const colorOf = (idx: number, alpha = 1) => {
   const hue = (idx * 137.508) % 360;
   return `hsla(${hue},70%,55%,${alpha})`;
 };
 
-/** 🔒 Clamp numérico tolerante */
+/** Clamp numérico tolerante */
 const clamp = (v: unknown, min = -40, max = 110): number | null => {
   const n = Number(v);
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : null;
 };
 
-/** 🗓️ Parseo de fecha tolerante: number | string | Date | null -> Date */
+/** Parseo de fecha tolerante: number | string | Date | null -> Date válida o época 0 */
 const toSafeDate = (v: unknown): Date => {
   if (v == null) return new Date(0);
   if (v instanceof Date) return isNaN(v.getTime()) ? new Date(0) : v;
   if (typeof v === "number") {
-    // segundos vs milisegundos
-    const ms = v < 9_999_999_999 ? v * 1000 : v;
+    const ms = v < 9_999_999_999 ? v * 1000 : v; // segundos vs ms
     const d = new Date(ms);
     return isNaN(d.getTime()) ? new Date(0) : d;
   }
   if (typeof v === "string") {
-    // "2025-10-22 13:05:00" -> "2025-10-22T13:05:00"
-    const s = v.includes(" ") ? v.replace(" ", "T") : v;
+    const s = v.includes(" ") ? v.replace(" ", "T") : v; // "YYYY-MM-DD HH:mm:ss"
     const d = new Date(s);
     return isNaN(d.getTime()) ? new Date(0) : d;
   }
@@ -83,7 +83,7 @@ const toSafeDate = (v: unknown): Date => {
   return isNaN(d.getTime()) ? new Date(0) : d;
 };
 
-/** 📆 Genera timestamps iso (labels) hacia atrás desde ahora */
+/** Genera timestamps iso hacia atrás desde ahora */
 const makeSegments = (hours: number, divisions: number): string[] => {
   const now = Date.now();
   const step = (hours * 3600_000) / divisions;
@@ -98,10 +98,9 @@ const makeSegments = (hours: number, divisions: number): string[] => {
    Componente
 ========================= */
 
-type RangeType = "24h" | "7d" | "30d" | "custom" | "all";
-
 const MultiSensorChart: React.FC = () => {
   const { sensors, historyData } = useContext(WeatherContext); // { key -> Measure[] }
+
   const [showTemp, setShowTemp] = useState(true);
   const [showHum, setShowHum] = useState(true);
   const [rangeType, setRangeType] = useState<RangeType>("7d");
@@ -112,9 +111,8 @@ const MultiSensorChart: React.FC = () => {
   const [fullscreen, setFullscreen] = useState(false);
   const chartRef = useRef<any>(null);
 
-  /** 🔹 Unifica timeline y series por sensor */
+  /** Unifica timeline y series por sensor */
   const unified = useMemo(() => {
-    // A) recolecta todos los timestamps válidos de todas las series
     const tsSet = new Set<string>();
 
     sensors.forEach((s) => {
@@ -132,12 +130,10 @@ const MultiSensorChart: React.FC = () => {
       }
     });
 
-    // B) timeline ordenada + mapa para lookup
     const time = Array.from(tsSet).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     const idxOf: Record<string, number> = {};
     time.forEach((iso, i) => (idxOf[iso] = i));
 
-    // C) serie por sensor alineada a 'time'
     const series: Record<string, { temperature: (number | null)[]; humidity: (number | null)[] }> =
       {};
 
@@ -146,7 +142,6 @@ const MultiSensorChart: React.FC = () => {
       const label = (s as any).deviceName || s.name || key;
       const hist: Measure[] = historyData[key] || [];
 
-      // preinicializa con null
       if (!series[label]) {
         series[label] = {
           temperature: Array(time.length).fill(null),
@@ -184,7 +179,7 @@ const MultiSensorChart: React.FC = () => {
     return { time, series };
   }, [sensors, historyData]);
 
-  /** 🔹 Aplica segmentación/agrupación por rango */
+  /** Aplica segmentación/agrupación por rango */
   const filtered = useMemo(() => {
     if (!unified.time.length) return unified;
 
@@ -213,11 +208,8 @@ const MultiSensorChart: React.FC = () => {
       return unified;
     }
 
-    // Genera segmentos regulares y asigna nearest-neighbor por ≤ 90 min
     const segments = makeSegments(hours, divisions);
     const out: typeof unified.series = {};
-
-    // premap a número para speed
     const baseTimes = unified.time.map((t) => toSafeDate(t).getTime());
 
     Object.entries(unified.series).forEach(([name, vals]) => {
@@ -226,7 +218,6 @@ const MultiSensorChart: React.FC = () => {
 
       segments.forEach((segIso) => {
         const segTime = toSafeDate(segIso).getTime();
-        // encuentra índice más cercano si dentro de 90 min
         let idx = -1;
         let best = Number.POSITIVE_INFINITY;
         for (let i = 0; i < baseTimes.length; i++) {
@@ -252,7 +243,7 @@ const MultiSensorChart: React.FC = () => {
     return { time: segments, series: out };
   }, [unified, rangeType, customRange]);
 
-  /** 🎨 Construye datasets (TypeScript-safe) */
+  /** Datasets */
   const datasets = useMemo<ChartDataset<"line", (number | null)[]>[]>(() => {
     const arr: ChartDataset<"line", (number | null)[]>[] = [];
     const entries = Object.entries(filtered.series);
@@ -273,7 +264,7 @@ const MultiSensorChart: React.FC = () => {
           tension: 0.35,
           pointRadius: 0,
           spanGaps: true,
-          yAxisID: "y", // misma escala
+          yAxisID: "y",
         });
       }
 
@@ -289,7 +280,7 @@ const MultiSensorChart: React.FC = () => {
           tension: 0.35,
           pointRadius: 0,
           spanGaps: true,
-          yAxisID: "y", // misma escala combinada (°C/%RH)
+          yAxisID: "y",
         });
       }
     });
@@ -297,7 +288,7 @@ const MultiSensorChart: React.FC = () => {
     return arr;
   }, [filtered.series, showTemp, showHum]);
 
-  /** 🔢 Datos del chart: labels como Date (nunca null) */
+  /** Datos del chart */
   const chartData = useMemo(
     () => ({
       labels: filtered.time.map((t) => toSafeDate(t)),
@@ -306,7 +297,7 @@ const MultiSensorChart: React.FC = () => {
     [filtered.time, datasets]
   );
 
-  /** ⚙️ Opciones del chart (sin `null` en Date) */
+  /** Opciones */
   const options: ChartOptions<"line"> = useMemo(
     () => ({
       responsive: true,
@@ -315,7 +306,7 @@ const MultiSensorChart: React.FC = () => {
       plugins: {
         title: {
           display: true,
-          text: "📈 Evolución de Temperatura y Humedad",
+          text: "Evolución de Temperatura y Humedad",
           color: "#111827",
           font: { size: 16, weight: "bold" },
         },
@@ -343,9 +334,12 @@ const MultiSensorChart: React.FC = () => {
               });
             },
             label: (ctx) => {
-              const val = ctx?.formattedValue ?? "—";
+              const y = typeof ctx.parsed?.y === "number" ? ctx.parsed.y : null;
               const isTemp = ctx.dataset.label?.includes("°C");
-              return `${isTemp ? "🔥" : "💧"} ${ctx.dataset.label}: ${val}`;
+              if (y == null) return isTemp ? "Temperatura: —" : "Humedad: —";
+              return isTemp
+                ? `Temperatura: ${y.toFixed(1)} °C`
+                : `Humedad: ${y.toFixed(1)} %`;
             },
           },
         },
@@ -376,19 +370,21 @@ const MultiSensorChart: React.FC = () => {
     [rangeType]
   );
 
-  /** ✅ Hay datos (al menos un punto no-null) */
   const hasData = useMemo(
     () => datasets.some((d) => (d.data as (number | null)[]).some((v) => v != null)),
     [datasets]
   );
 
+  /* =========================
+      Render
+  ========================= */
   return (
-    <div className={`w-full ${fullscreen ? "fixed inset-0 bg-white z-50 p-6" : ""} transition-all`}>
-      {/* 🧭 Barra de controles */}
-      <div className="flex flex-wrap items-center gap-3 mb-3">
+    <div className={`w-full min-w-0 ${fullscreen ? "fixed inset-0 bg-white z-50 p-3 sm:p-6" : ""} transition-all`}>
+      {/* Controles */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3">
         <button
           onClick={() => setShowTemp((v) => !v)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition ${
             showTemp ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
           }`}
         >
@@ -397,7 +393,7 @@ const MultiSensorChart: React.FC = () => {
 
         <button
           onClick={() => setShowHum((v) => !v)}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs sm:text-sm font-medium transition ${
             showHum ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
           }`}
         >
@@ -405,25 +401,26 @@ const MultiSensorChart: React.FC = () => {
         </button>
 
         <button
-          onClick={() => chartRef.current?.resetZoom()}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm bg-gray-100 text-gray-600 hover:bg-gray-200"
+          onClick={() => chartRef.current?.resetZoom?.()}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs sm:text-sm bg-gray-100 text-gray-600 hover:bg-gray-200"
         >
           <ArrowPathIcon className="w-4 h-4" /> Reset Zoom
         </button>
 
         <button
           onClick={() => setFullscreen((v) => !v)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm bg-gray-100 text-gray-600 hover:bg-gray-200"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs sm:text-sm bg-gray-100 text-gray-600 hover:bg-gray-200"
         >
           <ArrowsPointingOutIcon className="w-4 h-4" /> {fullscreen ? "Salir" : "Pantalla completa"}
         </button>
 
-        <div className="flex flex-wrap items-center gap-2 ml-auto">
+        {/* Rangos */}
+        <div className="flex flex-wrap items-center gap-1 sm:gap-2 ml-auto">
           {(["24h", "7d", "30d", "custom", "all"] as RangeType[]).map((opt) => (
             <button
               key={opt}
               onClick={() => setRangeType(opt)}
-              className={`px-3 py-1.5 text-xs rounded-full font-medium border transition ${
+              className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs rounded-full font-medium border transition ${
                 rangeType === opt
                   ? "bg-gray-900 text-white border-gray-900"
                   : "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
@@ -444,26 +441,26 @@ const MultiSensorChart: React.FC = () => {
       </div>
 
       {rangeType === "custom" && (
-        <div className="flex flex-wrap gap-3 mb-3">
+        <div className="flex flex-wrap gap-2 sm:gap-3 mb-3">
           <input
             type="datetime-local"
             value={customRange.start}
             onChange={(e) => setCustomRange((r) => ({ ...r, start: e.target.value }))}
-            className="border rounded-md px-2 py-1 text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
+            className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
           />
           <input
             type="datetime-local"
             value={customRange.end}
             onChange={(e) => setCustomRange((r) => ({ ...r, end: e.target.value }))}
-            className="border rounded-md px-2 py-1 text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
+            className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
           />
         </div>
       )}
 
-      {/* 📊 Gráfico */}
+      {/* Gráfico */}
       <div
-        className={`bg-white border border-gray-200 rounded-2xl shadow-sm p-4 md:p-6 overflow-hidden transition-all ${
-          fullscreen ? "h-[90vh]" : "h-[420px] md:h-[480px]"
+        className={`bg-white border border-gray-200 rounded-2xl shadow-sm p-3 sm:p-4 md:p-6 overflow-hidden transition-all min-w-0 ${
+          fullscreen ? "h-[85vh]" : "h-[380px] sm:h-[440px] md:h-[500px]"
         }`}
       >
         {hasData ? (

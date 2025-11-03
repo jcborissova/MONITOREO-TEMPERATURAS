@@ -46,7 +46,7 @@ const Dashboard: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  /** 📤 Exportar tablero a PNG o PDF */
+  /** Exportar tablero a PNG o PDF */
   const exportDashboard = async (format: "image" | "pdf") => {
     if (!dashboardRef.current) return;
     try {
@@ -76,7 +76,7 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  /** 📊 Totales */
+  /** Totales */
   const total = activeSensors.length;
   const critical = activeSensors.filter((r) => r.alert).length;
   const warning = activeSensors.filter((r) => !r.alert && r.warning).length;
