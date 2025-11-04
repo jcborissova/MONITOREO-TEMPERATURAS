@@ -22,6 +22,8 @@ import {
   NoSymbolIcon,
 } from "@heroicons/react/24/outline";
 
+import { locations } from "../data/Locations"; // ✅ misma fuente que WarehouseList
+
 /* =========================
    Helpers visuales
 ========================= */
@@ -130,6 +132,11 @@ const Dashboard: React.FC = () => {
   });
   const hasData = activeSensors.length > 0;
 
+  // ✅ Conteo real de almacenes desde la misma fuente que WarehouseList
+  // Si manejas un flag "active", filtra por él. Hoy, con 1 almacén:
+  const totalWarehouses =
+    locations.filter((w: any) => w.active !== false).length || locations.length || 0;
+
   // Hora amigable
   useEffect(() => {
     const updateTime = () => {
@@ -150,10 +157,7 @@ const Dashboard: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  /* ========= FIX: refresh infinito =========
-     Guardamos la ref fresca de refreshData sin provocar renders,
-     hacemos handleRefresh estable y el useEffect inicial corre una sola vez.
-  */
+  /* ========= FIX: refresh infinito ========= */
   const refreshRef = useRef(refreshData);
   useEffect(() => {
     refreshRef.current = refreshData;
@@ -161,7 +165,7 @@ const Dashboard: React.FC = () => {
 
   const isRefreshingRef = useRef(false);
   const handleRefresh = useCallback(async () => {
-    if (isRefreshingRef.current) return; // evita doble click / concurrencia
+    if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
     try {
       setIsLoading(true);
@@ -172,7 +176,7 @@ const Dashboard: React.FC = () => {
       setIsLoading(false);
       isRefreshingRef.current = false;
     }
-  }, []); // <- estable, no depende de refreshData
+  }, []);
 
   useEffect(() => {
     // al montar el dashboard, una sola vez
@@ -241,7 +245,6 @@ const Dashboard: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto relative">
-          {/* overlay sutil mientras carga para bloquear clicks */}
           {isLoading && (
             <div className="absolute inset-0 rounded-lg bg-white/60 backdrop-blur-[1px]" />
           )}
@@ -309,8 +312,11 @@ const Dashboard: React.FC = () => {
           />
         ) : (
           <>
-            {/* KPIs superiores (componentizados) */}
-            <DashboardKPIs rooms={activeSensors} />
+            {/* KPIs superiores (ya pasan el conteo real de almacenes) */}
+            <DashboardKPIs
+              rooms={activeSensors}
+              totalWarehouses={totalWarehouses} // ✅ aquí va el número real
+            />
 
             {/* Gráfico principal */}
             <Card
