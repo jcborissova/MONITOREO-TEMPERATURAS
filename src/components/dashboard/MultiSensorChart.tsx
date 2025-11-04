@@ -25,6 +25,12 @@ import { CloudIcon, FireIcon, ArrowPathIcon } from "@heroicons/react/24/solid";
 
 type RangeType = "24h" | "7d" | "30d" | "all" | "custom";
 
+const PRESET_DIVISIONS: Record<Exclude<RangeType, "all" | "custom">, number> = {
+  "24h": 48, // cada 30 min
+  "7d": 56,  // cada 3 h
+  "30d": 60, // cada 12 h
+};
+
 const colorOf = (idx: number, alpha = 1) => {
   const hue = (idx * 137.508) % 360;
   const a = Math.max(0, Math.min(1, alpha));
@@ -105,11 +111,9 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const idxOf: Record<string, number> = {};
     time.forEach((iso, i) => (idxOf[iso] = i));
 
-    // series por sensor/label
     const series: Record<string, { temperature: (number | null)[]; humidity: (number | null)[] }> =
       {};
 
-    // nombres de sensores desde la UI (para dibujar aunque no haya datos)
     const labelOf = (s: any) => (s?.deviceName || s?.name || s?.devEUI || "Sensor");
 
     sensors.forEach((s) => {
@@ -151,19 +155,19 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const minIso = time[0] ?? "";
     const maxIso = time[time.length - 1] ?? "";
 
-    // nombres consistentes incluso sin data
     const names = sensors.map((s) => s.deviceName || s.name || (s as any).devEUI || "Sensor");
 
     return { time, series, minIso, maxIso, names };
   }, [sensors, historyData]);
 
-  // ===== 2) Construye data re-muestreada (bins SIEMPRE, aunque no haya datos en ese rango) =====
+  // ===== 2) Construye data re-muestreada con número EXACTO de puntos =====
   const [binnedData, setBinnedData] = useState<Record<string, any>[]>([]);
   const [sensorNames, setSensorNames] = useState<string[]>([]);
-  const [inputMin, setInputMin] = useState<string>(""); // límites opcionales para inputs
+  const [inputMin, setInputMin] = useState<string>("");
   const [inputMax, setInputMax] = useState<string>("");
 
-  // Utilidad: genera bins promediando por sensor en [startMs, endMs)
+  type Point = { t: number; temp: number | null; hum: number | null };
+
   const buildBinnedData = (
     startMs: number,
     endMs: number,
@@ -173,11 +177,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const step = (endMs - startMs) / divisions;
     const rows: Record<string, any>[] = [];
 
-    // Si no hay series crudas, igual generamos filas vacías con ts
     const hasRaw = unified.time.length > 0;
 
-    // Pre-index de puntos por sensor si hay crudos
-    type Point = { t: number; temp: number | null; hum: number | null };
     const sensorPoints: Record<string, Point[]> = {};
     names.forEach((name) => (sensorPoints[name] = []));
 
@@ -236,19 +237,17 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return { rows };
   };
 
-  // Inicializa: 7d desde ahora (aunque no haya datos)
+  // Inicializa: 7d → 56 puntos
   useEffect(() => {
-    // límites para inputs (opcional: usa min/max de data si existen)
     setInputMin(unified.minIso ? unified.minIso.slice(0, 16) : "");
     setInputMax(unified.maxIso ? unified.maxIso.slice(0, 16) : "");
 
     const now = Date.now();
     const from = now - 7 * 24 * 3_600_000;
 
-    // Inicializa nombres de sensores para que se dibujen líneas aunque estén vacías
     setSensorNames(unified.names);
 
-    const { rows } = buildBinnedData(from, now, 56); // 7d → 56
+    const { rows } = buildBinnedData(from, now, PRESET_DIVISIONS["7d"]);
     setBinnedData(rows);
     setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
     setBrushKey((k) => k + 1);
@@ -257,7 +256,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unified.names.join(","), unified.minIso, unified.maxIso]);
 
-  // ===== 3) Quick ranges (siempre generan bins en el rango pedido, con o sin datos) =====
+  // ===== 3) Quick ranges EXACTOS (48 / 56 / 60) =====
   const applyQuickRange = (rt: RangeType) => {
     setRangeType(rt);
     setRangeError("");
@@ -265,15 +264,11 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const now = Date.now();
 
     if (rt === "all") {
-      // si hay data, usamos su ventana total; si no, usamos últimos 30d
       const hasData = !!unified.minIso && !!unified.maxIso;
-      const startMs = hasData
-        ? toSafeDate(unified.minIso).getTime()
-        : now - 30 * 24 * 3_600_000;
+      const startMs = hasData ? toSafeDate(unified.minIso).getTime() : now - 30 * 24 * 3_600_000;
       const endMs = hasData ? toSafeDate(unified.maxIso).getTime() : now;
       const dur = endMs - startMs;
-      const divisions =
-        dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
+      const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
 
       const { rows } = buildBinnedData(startMs, endMs, divisions);
       setBinnedData(rows);
@@ -282,13 +277,10 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       return;
     }
 
-    if (rt === "custom") {
-      // solo habilita inputs; espera click en "Aplicar rango"
-      return;
-    }
+    if (rt === "custom") return;
 
     const hours = rt === "24h" ? 24 : rt === "7d" ? 7 * 24 : 30 * 24;
-    const divisions = rt === "24h" ? 48 : rt === "7d" ? 56 : 60;
+    const divisions = PRESET_DIVISIONS[rt]; // 👈 definición explícita
     const startMs = now - hours * 3_600_000;
     const endMs = now;
 
@@ -298,7 +290,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     setBrushKey((k) => k + 1);
   };
 
-  // ===== 4) Custom range =====
+  // ===== 4) Custom range (≤24h→48, ≤7d→56, >7d→60) =====
   const applyCustomRange = () => {
     setRangeError("");
 
@@ -314,10 +306,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       return;
     }
 
-    // Divisiones según reglas:
     const dur = endMs - startMs;
-    const divisions =
-      dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
+    const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
 
     const { rows } = buildBinnedData(startMs, endMs, divisions);
     setBinnedData(rows);
@@ -372,6 +362,22 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
   const customEnabled = rangeType === "custom";
 
+  // ==== Calcula “esperado” para el badge de verificación ====
+  const expectedPoints =
+    rangeType === "24h"
+      ? PRESET_DIVISIONS["24h"]
+      : rangeType === "7d"
+      ? PRESET_DIVISIONS["7d"]
+      : rangeType === "30d"
+      ? PRESET_DIVISIONS["30d"]
+      : rangeType === "custom"
+      ? (() => {
+          if (!customStart || !customEnd) return 0;
+          const dur = toSafeDate(customEnd).getTime() - toSafeDate(customStart).getTime();
+          return dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
+        })()
+      : binnedData.length; // "all" → depende del rango total
+
   return (
     <div className="w-full min-w-0">
       {/* Controles */}
@@ -401,7 +407,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
           <ArrowPathIcon className="w-4 h-4" /> Reset vista
         </button>
 
-        {/* Quick ranges (incluye botón Personalizado) */}
+        {/* Quick ranges */}
         <div className="flex flex-wrap items-center gap-1 sm:gap-2 ml-auto">
           {(["24h", "7d", "30d", "all", "custom"] as RangeType[]).map((opt) => (
             <button
@@ -424,10 +430,16 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 : "Personalizado"}
             </button>
           ))}
+
+          {/* Badge de verificación de puntos */}
+          <span className="ml-1 px-2 py-1 rounded-full text-[11px] sm:text-xs bg-indigo-50 text-indigo-700 border border-indigo-100">
+            Puntos: {binnedData.length}
+            {expectedPoints ? ` / ${expectedPoints}` : ""}
+          </span>
         </div>
       </div>
 
-      {/* Custom range (inputs se habilitan solo si está activo "Personalizado") */}
+      {/* Custom range */}
       <div className="flex flex-wrap items-end gap-2 sm:gap-3 mb-3">
         <div className="flex flex-col">
           <label className="text-xs text-gray-500 mb-1">Desde</label>
@@ -473,7 +485,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
         )}
       </div>
 
-      {/* Gráfico (SIEMPRE se dibuja el rango seleccionado, aunque no haya datos) */}
+      {/* Gráfico */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-3 sm:p-4 md:p-6">
         <div className="w-full h-[360px] sm:h-[420px] md:h-[480px] lg:h-[520px] min-w-0">
           <ResponsiveContainer width="100%" height="100%">
@@ -486,7 +498,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 tickFormatter={(v: string) => fmtTick(v)}
               />
 
-              {/* AMBOS EJES A LA IZQUIERDA */}
+              {/* Ejes */}
               <YAxis
                 yAxisId="temp"
                 domain={[-40, 110]}
@@ -513,8 +525,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
               <ReferenceArea yAxisId="temp" y1={24} y2={30} fill="#EFF6FF" fillOpacity={0.35} />
               <ReferenceArea yAxisId="hum" y1={40} y2={60} fill="#ECFDF5" fillOpacity={0.25} />
 
-              {/* Series (se dibujan aunque estén vacías) */}
-              { (sensorNames.length ? sensorNames : unified.names).map((name, idx) => {
+              {/* Series */}
+              {(sensorNames.length ? sensorNames : unified.names).map((name, idx) => {
                 const c = colorOf(idx, 1);
                 return (
                   <React.Fragment key={name}>
@@ -551,7 +563,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 );
               })}
 
-              {/* Brush cubre SIEMPRE el rango mostrado */}
+              {/* Brush cubre todo el rango */}
               <Brush
                 key={brushKey}
                 dataKey="ts"
