@@ -1,81 +1,51 @@
+/* eslint-disable prefer-const */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useMemo, useRef, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
-  Chart as ChartJS,
-  LineElement,
-  CategoryScale,
-  LinearScale,
-  PointElement,
+  ResponsiveContainer,
+  CartesianGrid,
+  XAxis,
+  YAxis,
   Tooltip,
+  LineChart,
+  Line,
   Legend,
-  TimeScale,
-  Filler,
-  Decimation,
-  Colors,
-  Title,
-  SubTitle,
-  type ChartOptions,
-  type TooltipItem,
-  type ChartDataset,
-} from "chart.js";
-import zoomPlugin from "chartjs-plugin-zoom";
-import { Line } from "react-chartjs-2";
-import "chartjs-adapter-date-fns";
+  Brush,
+  ReferenceArea,
+} from "recharts";
 import { WeatherContext } from "../../context/WeatherContext";
 import type { Measure } from "../../types/types";
-import {
-  CloudIcon,
-  FireIcon,
-  ArrowPathIcon,
-  ArrowsPointingOutIcon,
-} from "@heroicons/react/24/solid";
+import { CloudIcon, FireIcon, ArrowPathIcon } from "@heroicons/react/24/solid";
 
-ChartJS.register(
-  LineElement,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  Tooltip,
-  Legend,
-  TimeScale,
-  Filler,
-  Decimation,
-  Colors,
-  Title,
-  SubTitle,
-  zoomPlugin
-);
-
-/* =========================
+/* =========================================
    Helpers
-========================= */
+========================================= */
 
-type RangeType = "24h" | "7d" | "30d" | "custom" | "all";
+type RangeType = "24h" | "7d" | "30d" | "all" | "custom";
 
-/** Color HSL estable por índice */
 const colorOf = (idx: number, alpha = 1) => {
   const hue = (idx * 137.508) % 360;
-  return `hsla(${hue},70%,55%,${alpha})`;
+  const a = Math.max(0, Math.min(1, alpha));
+  return `hsla(${hue},70%,50%,${a})`;
 };
 
-/** Clamp numérico tolerante */
 const clamp = (v: unknown, min = -40, max = 110): number | null => {
   const n = Number(v);
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : null;
 };
 
-/** Parseo de fecha tolerante: number | string | Date | null -> Date válida o época 0 */
 const toSafeDate = (v: unknown): Date => {
   if (v == null) return new Date(0);
   if (v instanceof Date) return isNaN(v.getTime()) ? new Date(0) : v;
   if (typeof v === "number") {
-    const ms = v < 9_999_999_999 ? v * 1000 : v; // segundos vs ms
+    const ms = v < 9_999_999_999 ? v * 1000 : v;
     const d = new Date(ms);
     return isNaN(d.getTime()) ? new Date(0) : d;
   }
   if (typeof v === "string") {
-    const s = v.includes(" ") ? v.replace(" ", "T") : v; // "YYYY-MM-DD HH:mm:ss"
+    const s = v.includes(" ") ? v.replace(" ", "T") : v;
     const d = new Date(s);
     return isNaN(d.getTime()) ? new Date(0) : d;
   }
@@ -83,40 +53,41 @@ const toSafeDate = (v: unknown): Date => {
   return isNaN(d.getTime()) ? new Date(0) : d;
 };
 
-/** Genera timestamps iso hacia atrás desde ahora */
-const makeSegments = (hours: number, divisions: number): string[] => {
-  const now = Date.now();
-  const step = (hours * 3600_000) / divisions;
-  const out: string[] = [];
-  for (let i = divisions - 1; i >= 0; i--) {
-    out.push(new Date(now - i * step).toISOString());
-  }
-  return out;
-};
+const fmtTick = (iso: string) =>
+  new Date(iso).toLocaleString("es-DO", {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
-/* =========================
+/* =========================================
    Componente
-========================= */
+========================================= */
 
-const MultiSensorChart: React.FC = () => {
-  const { sensors, historyData } = useContext(WeatherContext); // { key -> Measure[] }
+const MultiSensorTimelineRecharts: React.FC = () => {
+  const { sensors, historyData } = useContext(WeatherContext);
 
+  // Toggles
   const [showTemp, setShowTemp] = useState(true);
   const [showHum, setShowHum] = useState(true);
-  const [rangeType, setRangeType] = useState<RangeType>("7d");
-  const [customRange, setCustomRange] = useState<{ start: string; end: string }>({
-    start: "",
-    end: "",
-  });
-  const [fullscreen, setFullscreen] = useState(false);
-  const chartRef = useRef<any>(null);
 
-  /** Unifica timeline y series por sensor */
+  // Brush controlado
+  const [brushKey, setBrushKey] = useState(0);
+  const [brushRange, setBrushRange] = useState<{ startIndex?: number; endIndex?: number }>({});
+
+  // Filtros / Rango actual
+  const [rangeType, setRangeType] = useState<RangeType>("7d");
+  const [customStart, setCustomStart] = useState<string>("");
+  const [customEnd, setCustomEnd] = useState<string>("");
+  const [rangeError, setRangeError] = useState<string>("");
+
+  // ===== 1) Normaliza timeline & series crudas =====
   const unified = useMemo(() => {
     const tsSet = new Set<string>();
 
     sensors.forEach((s) => {
-      const key = s.devEUI ?? s.name;
+      const key = (s as any).devEUI ?? s.name;
       const hist: Measure[] = historyData[key] || [];
       for (const item of hist) {
         const raw =
@@ -134,12 +105,16 @@ const MultiSensorChart: React.FC = () => {
     const idxOf: Record<string, number> = {};
     time.forEach((iso, i) => (idxOf[iso] = i));
 
+    // series por sensor/label
     const series: Record<string, { temperature: (number | null)[]; humidity: (number | null)[] }> =
       {};
 
+    // nombres de sensores desde la UI (para dibujar aunque no haya datos)
+    const labelOf = (s: any) => (s?.deviceName || s?.name || s?.devEUI || "Sensor");
+
     sensors.forEach((s) => {
-      const key = s.devEUI ?? s.name;
-      const label = (s as any).deviceName || s.name || key;
+      const key = (s as any).devEUI ?? s.name;
+      const label = labelOf(s);
       const hist: Measure[] = historyData[key] || [];
 
       if (!series[label]) {
@@ -160,226 +135,245 @@ const MultiSensorChart: React.FC = () => {
         const i = idxOf[iso];
         if (i == null) continue;
 
-        const tVal =
-          clamp((item as any)?.temperature ?? (item as any)?.data?.temperature) ?? null;
-        const hVal =
-          clamp(
-            (item as any)?.humedity ??
-              (item as any)?.humidity ??
-              (item as any)?.data?.humidity,
-            0,
-            100
-          ) ?? null;
-
+        const tVal = clamp((item as any)?.temperature ?? (item as any)?.data?.temperature);
+        const hVal = clamp(
+          (item as any)?.humedity ??
+            (item as any)?.humidity ??
+            (item as any)?.data?.humidity,
+          0,
+          100
+        );
         series[label].temperature[i] = tVal;
         series[label].humidity[i] = hVal;
       }
     });
 
-    return { time, series };
+    const minIso = time[0] ?? "";
+    const maxIso = time[time.length - 1] ?? "";
+
+    // nombres consistentes incluso sin data
+    const names = sensors.map((s) => s.deviceName || s.name || (s as any).devEUI || "Sensor");
+
+    return { time, series, minIso, maxIso, names };
   }, [sensors, historyData]);
 
-  /** Aplica segmentación/agrupación por rango */
-  const filtered = useMemo(() => {
-    if (!unified.time.length) return unified;
+  // ===== 2) Construye data re-muestreada (bins SIEMPRE, aunque no haya datos en ese rango) =====
+  const [binnedData, setBinnedData] = useState<Record<string, any>[]>([]);
+  const [sensorNames, setSensorNames] = useState<string[]>([]);
+  const [inputMin, setInputMin] = useState<string>(""); // límites opcionales para inputs
+  const [inputMax, setInputMax] = useState<string>("");
 
-    let hours = 24;
-    let divisions = 48;
+  // Utilidad: genera bins promediando por sensor en [startMs, endMs)
+  const buildBinnedData = (
+    startMs: number,
+    endMs: number,
+    divisions: number
+  ): { rows: Record<string, any>[] } => {
+    const names = sensorNames.length ? sensorNames : unified.names;
+    const step = (endMs - startMs) / divisions;
+    const rows: Record<string, any>[] = [];
 
-    if (rangeType === "24h") {
-      hours = 24;
-      divisions = 48;
-    } else if (rangeType === "7d") {
-      hours = 7 * 24;
-      divisions = 56; // cada 3h aprox
-    } else if (rangeType === "30d") {
-      hours = 30 * 24;
-      divisions = 60;
-    } else if (rangeType === "custom") {
-      if (!(customRange.start && customRange.end)) return unified;
-      const start = toSafeDate(customRange.start).getTime();
-      const end = toSafeDate(customRange.end).getTime();
-      if (!(end > start)) return unified;
-      const diffHrs = (end - start) / 3_600_000;
-      hours = diffHrs;
-      divisions = diffHrs <= 24 ? 48 : diffHrs <= 24 * 7 ? 56 : 60;
-    } else {
-      // "all"
-      return unified;
+    // Si no hay series crudas, igual generamos filas vacías con ts
+    const hasRaw = unified.time.length > 0;
+
+    // Pre-index de puntos por sensor si hay crudos
+    type Point = { t: number; temp: number | null; hum: number | null };
+    const sensorPoints: Record<string, Point[]> = {};
+    names.forEach((name) => (sensorPoints[name] = []));
+
+    if (hasRaw) {
+      const nameList = Object.keys(unified.series).length ? Object.keys(unified.series) : names;
+      unified.time.forEach((iso, idx) => {
+        const t = toSafeDate(iso).getTime();
+        nameList.forEach((name) => {
+          const s = unified.series[name];
+          if (!s) return;
+          const temp = s.temperature[idx];
+          const hum = s.humidity[idx];
+          if (temp == null && hum == null) return;
+          sensorPoints[name] ??= [];
+          sensorPoints[name].push({ t, temp, hum });
+        });
+      });
     }
 
-    const segments = makeSegments(hours, divisions);
-    const out: typeof unified.series = {};
-    const baseTimes = unified.time.map((t) => toSafeDate(t).getTime());
+    for (let b = 0; b < divisions; b++) {
+      const bStart = startMs + b * step;
+      const bEnd = b === divisions - 1 ? endMs : startMs + (b + 1) * step;
+      const tsMid = new Date(bStart + (bEnd - bStart) / 2).toISOString();
 
-    Object.entries(unified.series).forEach(([name, vals]) => {
-      const temp: (number | null)[] = [];
-      const hum: (number | null)[] = [];
+      const row: Record<string, any> = { ts: tsMid };
 
-      segments.forEach((segIso) => {
-        const segTime = toSafeDate(segIso).getTime();
-        let idx = -1;
-        let best = Number.POSITIVE_INFINITY;
-        for (let i = 0; i < baseTimes.length; i++) {
-          const delta = Math.abs(baseTimes[i] - segTime);
-          if (delta < best) {
-            best = delta;
-            idx = i;
+      names.forEach((name) => {
+        if (!hasRaw || !sensorPoints[name]?.length) {
+          row[`${name} °C`] = null;
+          row[`${name} %RH`] = null;
+          return;
+        }
+        let sumT = 0,
+          cntT = 0;
+        let sumH = 0,
+          cntH = 0;
+        for (const p of sensorPoints[name]) {
+          if (p.t >= bStart && p.t < bEnd) {
+            if (typeof p.temp === "number") {
+              sumT += p.temp;
+              cntT++;
+            }
+            if (typeof p.hum === "number") {
+              sumH += p.hum;
+              cntH++;
+            }
           }
         }
-
-        if (best <= 90 * 60 * 1000 && idx !== -1) {
-          temp.push(vals.temperature[idx]);
-          hum.push(vals.humidity[idx]);
-        } else {
-          temp.push(null);
-          hum.push(null);
-        }
+        row[`${name} °C`] = cntT ? sumT / cntT : null;
+        row[`${name} %RH`] = cntH ? sumH / cntH : null;
       });
 
-      out[name] = { temperature: temp, humidity: hum };
-    });
+      rows.push(row);
+    }
 
-    return { time: segments, series: out };
-  }, [unified, rangeType, customRange]);
+    return { rows };
+  };
 
-  /** Datasets */
-  const datasets = useMemo<ChartDataset<"line", (number | null)[]>[]>(() => {
-    const arr: ChartDataset<"line", (number | null)[]>[] = [];
-    const entries = Object.entries(filtered.series);
+  // Inicializa: 7d desde ahora (aunque no haya datos)
+  useEffect(() => {
+    // límites para inputs (opcional: usa min/max de data si existen)
+    setInputMin(unified.minIso ? unified.minIso.slice(0, 16) : "");
+    setInputMax(unified.maxIso ? unified.maxIso.slice(0, 16) : "");
 
-    entries.forEach(([name, vals], idx) => {
-      const main = colorOf(idx, 1);
-      const fill = colorOf(idx, 0.15);
+    const now = Date.now();
+    const from = now - 7 * 24 * 3_600_000;
 
-      if (showTemp) {
-        arr.push({
-          type: "line",
-          label: `${name} °C`,
-          data: vals.temperature,
-          borderColor: main,
-          backgroundColor: fill,
-          fill: true,
-          borderWidth: 2,
-          tension: 0.35,
-          pointRadius: 0,
-          spanGaps: true,
-          yAxisID: "y",
-        });
-      }
+    // Inicializa nombres de sensores para que se dibujen líneas aunque estén vacías
+    setSensorNames(unified.names);
 
-      if (showHum) {
-        arr.push({
-          type: "line",
-          label: `${name} %RH`,
-          data: vals.humidity,
-          borderColor: main,
-          backgroundColor: "transparent",
-          borderDash: [6, 4],
-          borderWidth: 1.5,
-          tension: 0.35,
-          pointRadius: 0,
-          spanGaps: true,
-          yAxisID: "y",
-        });
-      }
-    });
+    const { rows } = buildBinnedData(from, now, 56); // 7d → 56
+    setBinnedData(rows);
+    setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+    setBrushKey((k) => k + 1);
+    setRangeType("7d");
+    setRangeError("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unified.names.join(","), unified.minIso, unified.maxIso]);
 
-    return arr;
-  }, [filtered.series, showTemp, showHum]);
+  // ===== 3) Quick ranges (siempre generan bins en el rango pedido, con o sin datos) =====
+  const applyQuickRange = (rt: RangeType) => {
+    setRangeType(rt);
+    setRangeError("");
 
-  /** Datos del chart */
-  const chartData = useMemo(
-    () => ({
-      labels: filtered.time.map((t) => toSafeDate(t)),
-      datasets,
-    }),
-    [filtered.time, datasets]
-  );
+    const now = Date.now();
 
-  /** Opciones */
-  const options: ChartOptions<"line"> = useMemo(
-    () => ({
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 500, easing: "easeInOutQuart" },
-      plugins: {
-        title: {
-          display: true,
-          text: "Evolución de Temperatura y Humedad",
-          color: "#111827",
-          font: { size: 16, weight: "bold" },
-        },
-        legend: {
-          position: "bottom",
-          labels: { usePointStyle: true, padding: 12, font: { size: 12 } },
-        },
-        tooltip: {
-          mode: "index",
-          intersect: false,
-          backgroundColor: "#111827",
-          titleColor: "#fff",
-          bodyColor: "#d1d5db",
-          borderColor: "#374151",
-          borderWidth: 1,
-          callbacks: {
-            title: (ctx: TooltipItem<"line">[]) => {
-              const x = Number(ctx?.[0]?.parsed?.x ?? 0);
-              return new Date(x).toLocaleString("es-DO", {
-                weekday: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-                day: "2-digit",
-                month: "short",
-              });
-            },
-            label: (ctx) => {
-              const y = typeof ctx.parsed?.y === "number" ? ctx.parsed.y : null;
-              const isTemp = ctx.dataset.label?.includes("°C");
-              if (y == null) return isTemp ? "Temperatura: —" : "Humedad: —";
-              return isTemp
-                ? `Temperatura: ${y.toFixed(1)} °C`
-                : `Humedad: ${y.toFixed(1)} %`;
-            },
-          },
-        },
-        zoom: {
-          zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" },
-          pan: { enabled: true, mode: "x", modifierKey: "shift" },
-        },
-      },
-      scales: {
-        x: {
-          type: "time",
-          time: {
-            unit: rangeType === "24h" ? "hour" : "day",
-            displayFormats: rangeType === "24h" ? { hour: "HH:mm" } : { day: "dd/MM" },
-          },
-          ticks: { color: "#6b7280" },
-          grid: { color: "rgba(0,0,0,0.05)" },
-        },
-        y: {
-          min: -40,
-          max: 110,
-          ticks: { stepSize: 10, color: "#6b7280" },
-          title: { display: true, text: "°C / %RH", color: "#111827" },
-          grid: { color: "rgba(0,0,0,0.05)" },
-        },
-      },
-    }),
-    [rangeType]
-  );
+    if (rt === "all") {
+      // si hay data, usamos su ventana total; si no, usamos últimos 30d
+      const hasData = !!unified.minIso && !!unified.maxIso;
+      const startMs = hasData
+        ? toSafeDate(unified.minIso).getTime()
+        : now - 30 * 24 * 3_600_000;
+      const endMs = hasData ? toSafeDate(unified.maxIso).getTime() : now;
+      const dur = endMs - startMs;
+      const divisions =
+        dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
 
-  const hasData = useMemo(
-    () => datasets.some((d) => (d.data as (number | null)[]).some((v) => v != null)),
-    [datasets]
-  );
+      const { rows } = buildBinnedData(startMs, endMs, divisions);
+      setBinnedData(rows);
+      setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+      setBrushKey((k) => k + 1);
+      return;
+    }
 
-  /* =========================
-      Render
-  ========================= */
+    if (rt === "custom") {
+      // solo habilita inputs; espera click en "Aplicar rango"
+      return;
+    }
+
+    const hours = rt === "24h" ? 24 : rt === "7d" ? 7 * 24 : 30 * 24;
+    const divisions = rt === "24h" ? 48 : rt === "7d" ? 56 : 60;
+    const startMs = now - hours * 3_600_000;
+    const endMs = now;
+
+    const { rows } = buildBinnedData(startMs, endMs, divisions);
+    setBinnedData(rows);
+    setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+    setBrushKey((k) => k + 1);
+  };
+
+  // ===== 4) Custom range =====
+  const applyCustomRange = () => {
+    setRangeError("");
+
+    if (!customStart || !customEnd) {
+      setRangeError("Completa ambas fechas.");
+      return;
+    }
+
+    const startMs = toSafeDate(customStart).getTime();
+    const endMs = toSafeDate(customEnd).getTime();
+    if (!(endMs > startMs)) {
+      setRangeError("El rango es inválido (fin debe ser > inicio).");
+      return;
+    }
+
+    // Divisiones según reglas:
+    const dur = endMs - startMs;
+    const divisions =
+      dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
+
+    const { rows } = buildBinnedData(startMs, endMs, divisions);
+    setBinnedData(rows);
+    setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+    setBrushKey((k) => k + 1);
+  };
+
+  // ===== 5) Tooltip =====
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active) return null;
+    const ts = typeof label === "string" ? new Date(label) : null;
+    return (
+      <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700 max-w-[280px]">
+        {ts && (
+          <p className="font-semibold text-gray-900 mb-1">
+            {ts.toLocaleString("es-DO", {
+              weekday: "short",
+              day: "2-digit",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
+        )}
+        <div className="space-y-0.5">
+          {(payload ?? []).map((p: any, i: number) => {
+            const name: string = p?.name ?? "";
+            const v = typeof p?.value === "number" ? p.value : null;
+            if (v == null) return null;
+            const isTemp = name.endsWith("°C");
+            return (
+              <div key={i} className="flex items-center gap-2">
+                <span className="inline-block w-2.5 h-2.5 rounded" style={{ background: p.color }} />
+                <span className="text-gray-600">{name}:</span>
+                <span className="font-semibold text-gray-900">
+                  {v.toFixed(1)} {isTemp ? "°C" : "%"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // ===== 6) Reset =====
+  const resetBrush = () => {
+    setBrushRange({ startIndex: 0, endIndex: Math.max(0, binnedData.length - 1) });
+    setBrushKey((k) => k + 1);
+    setRangeError("");
+  };
+
+  const customEnabled = rangeType === "custom";
+
   return (
-    <div className={`w-full min-w-0 ${fullscreen ? "fixed inset-0 bg-white z-50 p-3 sm:p-6" : ""} transition-all`}>
+    <div className="w-full min-w-0">
       {/* Controles */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3">
         <button
@@ -401,25 +395,18 @@ const MultiSensorChart: React.FC = () => {
         </button>
 
         <button
-          onClick={() => chartRef.current?.resetZoom?.()}
+          onClick={resetBrush}
           className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs sm:text-sm bg-gray-100 text-gray-600 hover:bg-gray-200"
         >
-          <ArrowPathIcon className="w-4 h-4" /> Reset Zoom
+          <ArrowPathIcon className="w-4 h-4" /> Reset vista
         </button>
 
-        <button
-          onClick={() => setFullscreen((v) => !v)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs sm:text-sm bg-gray-100 text-gray-600 hover:bg-gray-200"
-        >
-          <ArrowsPointingOutIcon className="w-4 h-4" /> {fullscreen ? "Salir" : "Pantalla completa"}
-        </button>
-
-        {/* Rangos */}
+        {/* Quick ranges (incluye botón Personalizado) */}
         <div className="flex flex-wrap items-center gap-1 sm:gap-2 ml-auto">
-          {(["24h", "7d", "30d", "custom", "all"] as RangeType[]).map((opt) => (
+          {(["24h", "7d", "30d", "all", "custom"] as RangeType[]).map((opt) => (
             <button
               key={opt}
-              onClick={() => setRangeType(opt)}
+              onClick={() => applyQuickRange(opt)}
               className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs rounded-full font-medium border transition ${
                 rangeType === opt
                   ? "bg-gray-900 text-white border-gray-900"
@@ -432,47 +419,159 @@ const MultiSensorChart: React.FC = () => {
                 ? "7 días"
                 : opt === "30d"
                 ? "30 días"
-                : opt === "custom"
-                ? "Personalizado"
-                : "Todo"}
+                : opt === "all"
+                ? "Todo"
+                : "Personalizado"}
             </button>
           ))}
         </div>
       </div>
 
-      {rangeType === "custom" && (
-        <div className="flex flex-wrap gap-2 sm:gap-3 mb-3">
+      {/* Custom range (inputs se habilitan solo si está activo "Personalizado") */}
+      <div className="flex flex-wrap items-end gap-2 sm:gap-3 mb-3">
+        <div className="flex flex-col">
+          <label className="text-xs text-gray-500 mb-1">Desde</label>
           <input
             type="datetime-local"
-            value={customRange.start}
-            onChange={(e) => setCustomRange((r) => ({ ...r, start: e.target.value }))}
-            className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
-          />
-          <input
-            type="datetime-local"
-            value={customRange.end}
-            onChange={(e) => setCustomRange((r) => ({ ...r, end: e.target.value }))}
-            className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
+            value={customStart}
+            min={inputMin || undefined}
+            max={inputMax || undefined}
+            onChange={(e) => setCustomStart(e.target.value)}
+            disabled={!customEnabled}
+            className={`border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400 ${
+              !customEnabled ? "bg-gray-100 cursor-not-allowed" : ""
+            }`}
           />
         </div>
-      )}
-
-      {/* Gráfico */}
-      <div
-        className={`bg-white border border-gray-200 rounded-2xl shadow-sm p-3 sm:p-4 md:p-6 overflow-hidden transition-all min-w-0 ${
-          fullscreen ? "h-[85vh]" : "h-[380px] sm:h-[440px] md:h-[500px]"
-        }`}
-      >
-        {hasData ? (
-          <Line ref={chartRef} data={chartData} options={options} />
-        ) : (
-          <div className="flex items-center justify-center h-full text-gray-400">
-            Sin datos disponibles
-          </div>
+        <div className="flex flex-col">
+          <label className="text-xs text-gray-500 mb-1">Hasta</label>
+          <input
+            type="datetime-local"
+            value={customEnd}
+            min={inputMin || undefined}
+            max={inputMax || undefined}
+            onChange={(e) => setCustomEnd(e.target.value)}
+            disabled={!customEnabled}
+            className={`border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400 ${
+              !customEnabled ? "bg-gray-100 cursor-not-allowed" : ""
+            }`}
+          />
+        </div>
+        <button
+          onClick={applyCustomRange}
+          disabled={!customEnabled}
+          className={`h-[34px] sm:h-[38px] px-3 py-1.5 rounded-md text-xs sm:text-sm ${
+            customEnabled
+              ? "bg-gray-900 text-white hover:bg-black"
+              : "bg-gray-200 text-gray-500 cursor-not-allowed"
+          }`}
+        >
+          Aplicar rango
+        </button>
+        {rangeError && (
+          <span className="text-[11px] sm:text-xs text-red-600">{rangeError}</span>
         )}
+      </div>
+
+      {/* Gráfico (SIEMPRE se dibuja el rango seleccionado, aunque no haya datos) */}
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-3 sm:p-4 md:p-6">
+        <div className="w-full h-[360px] sm:h-[420px] md:h-[480px] lg:h-[520px] min-w-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={binnedData} margin={{ top: 12, right: 16, left: 8, bottom: 8 }}>
+              <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
+              <XAxis
+                dataKey="ts"
+                tick={{ fontSize: 11, fill: "#6b7280" }}
+                minTickGap={24}
+                tickFormatter={(v: string) => fmtTick(v)}
+              />
+
+              {/* AMBOS EJES A LA IZQUIERDA */}
+              <YAxis
+                yAxisId="temp"
+                domain={[-40, 110]}
+                tick={{ fontSize: 11, fill: "#1f2937" }}
+                tickFormatter={(v) => `${v}°C`}
+                width={48}
+              />
+              <YAxis
+                yAxisId="hum"
+                orientation="left"
+                domain={[0, 100]}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 11, fill: "#065f46" }}
+                tickFormatter={(v) => `${v}%`}
+                width={48}
+                mirror
+              />
+
+              <Tooltip content={<CustomTooltip />} />
+              <Legend verticalAlign="bottom" wrapperStyle={{ paddingTop: 8 }} iconType="circle" />
+
+              {/* Bandas sugeridas */}
+              <ReferenceArea yAxisId="temp" y1={24} y2={30} fill="#EFF6FF" fillOpacity={0.35} />
+              <ReferenceArea yAxisId="hum" y1={40} y2={60} fill="#ECFDF5" fillOpacity={0.25} />
+
+              {/* Series (se dibujan aunque estén vacías) */}
+              { (sensorNames.length ? sensorNames : unified.names).map((name, idx) => {
+                const c = colorOf(idx, 1);
+                return (
+                  <React.Fragment key={name}>
+                    {showTemp && (
+                      <Line
+                        type="monotone"
+                        yAxisId="temp"
+                        dataKey={`${name} °C`}
+                        name={`${name} °C`}
+                        stroke={c}
+                        strokeWidth={2}
+                        dot={false}
+                        isAnimationActive
+                        animationDuration={600}
+                        connectNulls
+                      />
+                    )}
+                    {showHum && (
+                      <Line
+                        type="monotone"
+                        yAxisId="hum"
+                        dataKey={`${name} %RH`}
+                        name={`${name} %RH`}
+                        stroke={c}
+                        strokeDasharray="6 4"
+                        strokeWidth={1.5}
+                        dot={false}
+                        isAnimationActive
+                        animationDuration={600}
+                        connectNulls
+                      />
+                    )}
+                  </React.Fragment>
+                );
+              })}
+
+              {/* Brush cubre SIEMPRE el rango mostrado */}
+              <Brush
+                key={brushKey}
+                dataKey="ts"
+                travellerWidth={8}
+                height={28}
+                startIndex={brushRange.startIndex}
+                endIndex={brushRange.endIndex}
+                onChange={(r: { startIndex?: number; endIndex?: number } | null) =>
+                  setBrushRange(r ?? {})
+                }
+                tickFormatter={(v: string) =>
+                  new Date(v).toLocaleDateString("es-DO", { day: "2-digit", month: "short" })
+                }
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );
 };
 
-export default MultiSensorChart;
+export default MultiSensorTimelineRecharts;

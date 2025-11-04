@@ -1,21 +1,27 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useContext, useState } from "react";
+"use client";
+import React, { useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Battery100Icon,
   Battery50Icon,
   Battery0Icon,
   ArrowPathIcon,
+  NoSymbolIcon,
 } from "@heroicons/react/24/outline";
+
 import PageContainer from "../components/layout/PageContainer";
 import AlertThresholdModal from "../components/devices/AlertThresholdModal";
 import DeviceDetailsModal from "../components/devices/DeviceDetailsModal";
+import ResponsiveTable from "../components/ui/ResponsiveTable";
+
 import { SensorsContext } from "../context/SensorsContext";
 import { WeatherContext } from "../context/WeatherContext";
-import ResponsiveTable from "../components/ui/ResponsiveTable";
 import type { Room, Measure } from "../types/types";
 
-/** Util: normaliza fechas */
+/* =========================
+   Utils
+========================= */
 const normalizeDate = (value: any): string => {
   if (!value) return new Date().toISOString();
   if (typeof value === "number") {
@@ -31,7 +37,6 @@ const normalizeDate = (value: any): string => {
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 };
 
-/** UI helpers */
 const renderBattery = (level?: number) => {
   if (level == null || Number.isNaN(level)) return "—";
   if (level >= 80) {
@@ -80,28 +85,121 @@ const renderConnectionStatus = (updatedAt?: string | Date) => {
   );
 };
 
+/* =========================
+   UI Helpers
+========================= */
+const Button = ({
+  children,
+  onClick,
+  disabled,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
+}) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    title={title}
+    className={[
+      "inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition",
+      disabled
+        ? "text-gray-400 border-gray-200 bg-gray-50 cursor-wait"
+        : "text-gray-700 border-gray-300 hover:bg-gray-100",
+    ].join(" ")}
+  >
+    {children}
+  </button>
+);
+
+const SkeletonTable = () => (
+  <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+    <div className="animate-pulse space-y-3">
+      <div className="h-4 w-56 bg-gray-200 rounded" />
+      <div className="w-full h-10 bg-gray-100 rounded" />
+      {[...Array(6)].map((_, i) => (
+        <div key={i} className="w-full h-9 bg-gray-100 rounded" />
+      ))}
+    </div>
+  </div>
+);
+
+const EmptyState = ({ onRetry }: { onRetry: () => void }) => (
+  <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-10 text-center">
+    <div className="mx-auto w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center mb-4">
+      <NoSymbolIcon className="w-8 h-8 text-blue-600" />
+    </div>
+    <h3 className="text-lg font-semibold text-gray-800">No hay dispositivos para mostrar</h3>
+    <p className="text-sm text-gray-500 mt-1">
+      Aún no se han registrado sensores o no se detectaron lecturas recientes.
+    </p>
+    <div className="mt-5">
+      <Button onClick={onRetry}>
+        <ArrowPathIcon className="w-4 h-4" />
+        Reintentar
+      </Button>
+    </div>
+    <p className="text-xs text-gray-400 mt-3">
+      Tip: verifica la conexión de los dispositivos y la configuración del sistema.
+    </p>
+  </div>
+);
+
+/* =========================
+   Componente principal
+========================= */
 const DevicesPage: React.FC = () => {
   const { sensors, refreshSensors } = useContext(SensorsContext);
   const { historyData } = useContext(WeatherContext);
 
   const [selectedDevice, setSelectedDevice] = useState<Room | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // 👉 id real que pasa al modal (el modal se encarga de consultar el API)
   const [configDeviceId, setConfigDeviceId] = useState<string>("");
 
-  // Quitamos el “almacén” de esta tabla (si aplica)
-  const tableData = (sensors || []).filter((s) => {
-    const n = (s.name || (s as any).deviceName || "").toLowerCase();
-    return !n.includes("almacén") && !n.includes("almacen") && !n.includes("warehouse");
-  });
+  // Filtra “almacén/warehouse” de la tabla
+  const tableData = useMemo(
+    () =>
+      (sensors || []).filter((s) => {
+        const n = (s.name || (s as any).deviceName || "").toLowerCase();
+        return !n.includes("almacén") && !n.includes("almacen") && !n.includes("warehouse");
+      }),
+    [sensors]
+  );
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await refreshSensors();
-    setIsRefreshing(false);
-  };
+  const hasData = tableData.length > 0;
+
+  // ======= FIX anti-loop: mantener referencia estable del refresco =======
+  const refreshRef = useRef(refreshSensors);
+  useEffect(() => {
+    refreshRef.current = refreshSensors;
+  }, [refreshSensors]);
+
+  const isRefreshingRef = useRef(false);
+  const handleRefresh = useCallback(async () => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+    try {
+      setIsLoading(true);
+      await Promise.resolve(refreshRef.current?.());
+    } catch (e) {
+      console.error("Error al refrescar dispositivos:", e);
+    } finally {
+      setIsLoading(false);
+      isRefreshingRef.current = false;
+    }
+  }, []);
+
+  // Carga inicial una sola vez
+  useEffect(() => {
+    handleRefresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleViewDetails = (row: Room) => {
     const keyByEui = row.devEUI ?? null;
@@ -121,11 +219,7 @@ const DevicesPage: React.FC = () => {
   };
 
   const handleOpenConfig = (row: Room) => {
-    const id =
-      row.devEUI ||
-      row.name ||
-      (row as any).deviceName ||
-      "";
+    const id = row.devEUI || row.name || (row as any).deviceName || "";
     setConfigDeviceId(String(id));
   };
 
@@ -140,86 +234,89 @@ const DevicesPage: React.FC = () => {
       description="Monitorea los sensores y configura umbrales de temperatura y humedad."
     >
       {/* Toolbar */}
-      <div className="flex justify-end mb-4">
-        <button
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className={`flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition ${
-            isRefreshing ? "opacity-70 cursor-wait" : ""
-          }`}
-        >
-          <ArrowPathIcon className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`} />
-          {isRefreshing ? "Actualizando..." : "Refrescar datos"}
-        </button>
+      <div className="flex justify-end mb-4 relative">
+        {isLoading && (
+          <div className="absolute inset-0 rounded-lg bg-white/60 backdrop-blur-[1px]" />
+        )}
+        <Button onClick={handleRefresh} disabled={isLoading}>
+          <ArrowPathIcon className={["w-5 h-5", isLoading ? "animate-spin" : ""].join(" ")} />
+          {isLoading ? "Actualizando..." : "Refrescar datos"}
+        </Button>
       </div>
 
-      {/* Tabla */}
-      <ResponsiveTable
-        title="Dispositivos Activos"
-        data={tableData}
-        expandableKey="name"
-        emptyMessage="No se encontraron dispositivos registrados."
-        showExport
-        onActionClick={handleTableAction}
-        actions={[
-          { label: "Ver detalles", value: "details" },
-          { label: "Configurar umbrales", value: "edit" },
-        ]}
-        columns={[
-          {
-            key: "name",
-            label: "Zona / Dispositivo",
-            align: "left",
-            render: (_v, row) => (
-              <div className="max-w-[260px]">
-                <div className="font-semibold text-gray-900">
-                  {row.name || (row as any).deviceName || "Sensor"}
+      {/* Contenido */}
+      {isLoading ? (
+        <SkeletonTable />
+      ) : !hasData ? (
+        <EmptyState onRetry={handleRefresh} />
+      ) : (
+        <ResponsiveTable
+          title="Dispositivos Activos"
+          data={tableData}
+          expandableKey="name"
+          emptyMessage="No se encontraron dispositivos registrados."
+          showExport
+          onActionClick={handleTableAction}
+          actions={[
+            { label: "Ver detalles", value: "details" },
+            { label: "Configurar umbrales", value: "edit" },
+          ]}
+          columns={[
+            {
+              key: "name",
+              label: "Zona / Dispositivo",
+              align: "left",
+              render: (_v, row) => (
+                <div className="max-w-[260px]">
+                  <div className="font-semibold text-gray-900">
+                    {row.name || (row as any).deviceName || "Sensor"}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {(row.devEUI || (row as any).deviceName)
+                      ? `UID: ${row.devEUI || (row as any).deviceName}`
+                      : "UID no disponible"}
+                  </div>
                 </div>
-                <div className="text-xs text-gray-500">
-                  {(row.devEUI || (row as any).deviceName)
-                    ? `UID: ${row.devEUI || (row as any).deviceName}`
-                    : "UID no disponible"}
-                </div>
-              </div>
-            ),
-          },
-          {
-            key: "battery",
-            label: "Batería",
-            align: "left",
-            render: (_v, row) =>
-              renderBattery(
-                Number(
-                  (row as any).battery ??
-                    (row as any).lastPower ??
-                    (row as any).productivity
-                )
               ),
-          },
-          {
-            key: "updatedAt",
-            label: "Estado",
-            align: "left",
-            render: (v) => renderConnectionStatus(v),
-          },
-          {
-            key: "temperature",
-            label: "Temperatura (°C)",
-            align: "right",
-            render: (v) =>
-              v != null && !Number.isNaN(v) ? Number(v).toFixed(1) : "—",
-          },
-          {
-            key: "humedity",
-            label: "Humedad (%RH)",
-            align: "right",
-            render: (v, row) => {
-              const h = v ?? (row as any).humidity ?? (row as any).data?.humidity ?? null;
-              return h != null && !Number.isNaN(h) ? Number(h).toFixed(1) : "—";
             },
-          },
-        ]}
-      />
+            {
+              key: "battery",
+              label: "Batería",
+              align: "left",
+              render: (_v, row) =>
+                renderBattery(
+                  Number(
+                    (row as any).battery ??
+                      (row as any).lastPower ??
+                      (row as any).productivity
+                  )
+                ),
+            },
+            {
+              key: "updatedAt",
+              label: "Estado",
+              align: "left",
+              render: (v) => renderConnectionStatus(v),
+            },
+            {
+              key: "temperature",
+              label: "Temperatura (°C)",
+              align: "right",
+              render: (v) =>
+                v != null && !Number.isNaN(v) ? Number(v).toFixed(1) : "—",
+            },
+            {
+              key: "humedity",
+              label: "Humedad (%RH)",
+              align: "right",
+              render: (v, row) => {
+                const h = v ?? (row as any).humidity ?? (row as any).data?.humidity ?? null;
+                return h != null && !Number.isNaN(h) ? Number(h).toFixed(1) : "—";
+              },
+            },
+          ]}
+        />
+      )}
 
       {/* Modales */}
       {selectedDevice && (
@@ -236,6 +333,14 @@ const DevicesPage: React.FC = () => {
         deviceId={configDeviceId}
         onClose={() => setConfigDeviceId("")}
       />
+
+      {/* Aviso flotante de carga */}
+      {isLoading && (
+        <div className="fixed bottom-4 right-4 px-3 py-2 rounded-lg bg-white/90 border border-gray-200 shadow-md flex items-center gap-2 backdrop-blur">
+          <ArrowPathIcon className="w-4 h-4 animate-spin text-gray-600" />
+          <span className="text-sm text-gray-700">Actualizando dispositivos…</span>
+        </div>
+      )}
     </PageContainer>
   );
 };
