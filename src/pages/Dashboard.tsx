@@ -315,7 +315,7 @@ const Dashboard: React.FC = () => {
             {/* KPIs superiores (ya pasan el conteo real de almacenes) */}
             <DashboardKPIs
               rooms={activeSensors}
-              totalWarehouses={totalWarehouses} // ✅ aquí va el número real
+              totalWarehouses={totalWarehouses}
             />
 
             {/* Gráfico principal */}
