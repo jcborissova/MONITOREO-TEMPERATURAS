@@ -5,7 +5,7 @@ import type { Room } from "../../types/types";
 
 interface DashboardKPIsProps {
   rooms: Room[];
-  /** total de almacenes (si no llega, calcula por rooms únicas si aplica) */
+  /** total de almacenes activos (lo manda la página) */
   totalWarehouses?: number;
   /** muestra skeletons mientras carga */
   loading?: boolean;
@@ -57,7 +57,7 @@ type Tone = keyof typeof toneStyles;
 ========================= */
 const DashboardKPIs: React.FC<DashboardKPIsProps> = ({
   rooms,
-  totalWarehouses = 12,
+  totalWarehouses,
   loading = false,
   onCardClick,
   compact = false,
@@ -76,7 +76,6 @@ const DashboardKPIs: React.FC<DashboardKPIsProps> = ({
   }, [rooms]);
 
   const gridCls =
-    // 1 col en móvil, 2 en sm, 4 en lg; gaps ajustados
     "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4";
 
   if (loading) {
@@ -100,6 +99,11 @@ const DashboardKPIs: React.FC<DashboardKPIsProps> = ({
     );
   }
 
+  const warehousesCount =
+    typeof totalWarehouses === "number" && !Number.isNaN(totalWarehouses)
+      ? totalWarehouses
+      : 0;
+
   return (
     <section
       className={gridCls + " pb-[env(safe-area-inset-bottom)]"}
@@ -109,7 +113,7 @@ const DashboardKPIs: React.FC<DashboardKPIsProps> = ({
         tone="primary"
         icon={<Warehouse className="w-5 h-5 sm:w-6 sm:h-6" />}
         label="Almacenes activos"
-        value={totalWarehouses}
+        value={warehousesCount}
         onClick={() => onCardClick?.("warehouses")}
         compact={compact}
         disabled={disabled || !onCardClick}
@@ -162,7 +166,6 @@ const KPIBase: React.FC<{
 }> = ({ icon, label, value, subtitle, tone = "primary", onClick, compact = false, disabled = false }) => {
   const t = toneStyles[tone];
 
-  // sizing responsive
   const pad = compact ? "p-3" : "p-3.5 sm:p-4";
   const minH = compact ? "min-h-[78px]" : "min-h-[86px]";
   const valueSize = compact ? "text-base sm:text-lg" : "text-lg sm:text-xl";
