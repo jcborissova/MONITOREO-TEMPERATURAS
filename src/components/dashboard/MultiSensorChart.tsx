@@ -20,7 +20,7 @@ import type { Measure } from "../../types/types";
 import { CloudIcon, FireIcon, ArrowPathIcon } from "@heroicons/react/24/solid";
 
 /* =========================================
-   Helpers
+   Helpers / tipos
 ========================================= */
 
 type RangeType = "24h" | "7d" | "30d" | "all" | "custom";
@@ -29,6 +29,12 @@ const PRESET_DIVISIONS: Record<Exclude<RangeType, "all" | "custom">, number> = {
   "24h": 48, // cada 30 min
   "7d": 56,  // cada 3 h
   "30d": 60, // cada 12 h
+};
+
+// Cada fila del chart DEBE tener "ts"
+type ChartRow = {
+  ts: string;
+  [key: string]: number | string | null;
 };
 
 const colorOf = (idx: number, alpha = 1) => {
@@ -161,10 +167,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   }, [sensors, historyData]);
 
   // ===== 2) Construye data re-muestreada con número EXACTO de puntos =====
-  const [binnedData, setBinnedData] = useState<Record<string, any>[]>([]);
+  const [binnedData, setBinnedData] = useState<ChartRow[]>([]);
   const [sensorNames, setSensorNames] = useState<string[]>([]);
-  const [inputMin, setInputMin] = useState<string>("");
-  const [inputMax, setInputMax] = useState<string>("");
 
   type Point = { t: number; temp: number | null; hum: number | null };
 
@@ -172,10 +176,10 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     startMs: number,
     endMs: number,
     divisions: number
-  ): { rows: Record<string, any>[] } => {
+  ): { rows: ChartRow[] } => {
     const names = sensorNames.length ? sensorNames : unified.names;
     const step = (endMs - startMs) / divisions;
-    const rows: Record<string, any>[] = [];
+    const rows: ChartRow[] = [];
 
     const hasRaw = unified.time.length > 0;
 
@@ -203,7 +207,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       const bEnd = b === divisions - 1 ? endMs : startMs + (b + 1) * step;
       const tsMid = new Date(bStart + (bEnd - bStart) / 2).toISOString();
 
-      const row: Record<string, any> = { ts: tsMid };
+      const row: ChartRow = { ts: tsMid };
 
       names.forEach((name) => {
         if (!hasRaw || !sensorPoints[name]?.length) {
@@ -237,11 +241,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return { rows };
   };
 
-  // Inicializa: 7d → 56 puntos
+  // ===== Inicialización por defecto (7d) =====
   useEffect(() => {
-    setInputMin(unified.minIso ? unified.minIso.slice(0, 16) : "");
-    setInputMax(unified.maxIso ? unified.maxIso.slice(0, 16) : "");
-
     const now = Date.now();
     const from = now - 7 * 24 * 3_600_000;
 
@@ -277,10 +278,14 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       return;
     }
 
-    if (rt === "custom") return;
+    if (rt === "custom") {
+      // Solo cambiamos el modo; el usuario puede poner cualquier fecha libremente.
+      setRangeError("");
+      return;
+    }
 
     const hours = rt === "24h" ? 24 : rt === "7d" ? 7 * 24 : 30 * 24;
-    const divisions = PRESET_DIVISIONS[rt]; // 👈 definición explícita
+    const divisions = PRESET_DIVISIONS[rt];
     const startMs = now - hours * 3_600_000;
     const endMs = now;
 
@@ -378,6 +383,36 @@ const MultiSensorTimelineRecharts: React.FC = () => {
         })()
       : binnedData.length; // "all" → depende del rango total
 
+  // ===== Handlers: permitir cualquier fecha (sin limitar por datos) =====
+  const onStartChange = (val: string) => {
+    // No limitamos por min/max de datos: el usuario puede elegir cualquier fecha
+    if (customEnd && toSafeDate(val) > toSafeDate(customEnd)) {
+      setCustomEnd(val);
+    }
+    setCustomStart(val);
+    setRangeError("");
+  };
+
+  const onEndChange = (val: string) => {
+    // No limitamos por min/max de datos: el usuario puede elegir cualquier fecha
+    if (customStart && toSafeDate(val) < toSafeDate(customStart)) {
+      setCustomStart(val);
+    }
+    setCustomEnd(val);
+    setRangeError("");
+  };
+
+  // ===== Disponibilidad (solo visual, no bloquea) =====
+  const hasAvailability = !!unified.minIso && !!unified.maxIso;
+  const availabilityLabel =
+    hasAvailability
+      ? `${new Date(unified.minIso).toLocaleString("es-DO")} — ${new Date(unified.maxIso).toLocaleString("es-DO")}`
+      : "Sin datos disponibles aún";
+
+  const availabilityBadgeClass = hasAvailability
+    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+    : "bg-gray-50 text-gray-500 border-gray-200";
+
   return (
     <div className="w-full min-w-0">
       {/* Controles */}
@@ -439,50 +474,61 @@ const MultiSensorTimelineRecharts: React.FC = () => {
         </div>
       </div>
 
-      {/* Custom range */}
-      <div className="flex flex-wrap items-end gap-2 sm:gap-3 mb-3">
-        <div className="flex flex-col">
-          <label className="text-xs text-gray-500 mb-1">Desde</label>
-          <input
-            type="datetime-local"
-            value={customStart}
-            min={inputMin || undefined}
-            max={inputMax || undefined}
-            onChange={(e) => setCustomStart(e.target.value)}
-            disabled={!customEnabled}
-            className={`border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400 ${
-              !customEnabled ? "bg-gray-100 cursor-not-allowed" : ""
-            }`}
-          />
+      {/* Custom range (MISMO LAYOUT; aparece/desaparece con elegancia) */}
+      <div className="mb-3">
+        <div className="relative">
+          {/* Reserva fija para que el layout no salte */}
+          <div className="min-h-[72px] sm:min-h-[80px]" />
+
+          {/* Panel animado (absoluto) */}
+          <div
+            aria-hidden={!customEnabled}
+            className={[
+              "absolute inset-0 flex flex-wrap items-end gap-2 sm:gap-3",
+              "transition-all duration-300 ease-out will-change-transform will-change-opacity",
+              customEnabled
+                ? "opacity-100 translate-y-0"
+                : "opacity-0 -translate-y-1 pointer-events-none",
+            ].join(" ")}
+          >
+            <div className="flex flex-col">
+              <label className="text-xs text-gray-500 mb-1">Desde</label>
+              <input
+                type="datetime-local"
+                value={customStart}
+                onChange={(e) => onStartChange(e.target.value)}
+                className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+            <div className="flex flex-col">
+              <label className="text-xs text-gray-500 mb-1">Hasta</label>
+              <input
+                type="datetime-local"
+                value={customEnd}
+                onChange={(e) => onEndChange(e.target.value)}
+                className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+            <button
+              onClick={applyCustomRange}
+              className="h-[34px] sm:h-[38px] px-3 py-1.5 rounded-md text-xs sm:text-sm bg-gray-900 text-white hover:bg-black"
+            >
+              Aplicar rango
+            </button>
+
+            {/* Indicador de disponibilidad de datos (no bloquea el rango) */}
+            <span
+              title="Rango donde sí hay datos"
+              className={`ml-auto px-2 py-1 rounded-full text-[11px] sm:text-xs border ${availabilityBadgeClass}`}
+            >
+              {hasAvailability ? `Datos disponibles: ${availabilityLabel}` : availabilityLabel}
+            </span>
+
+            {rangeError && (
+              <span className="w-full text-[11px] sm:text-xs text-red-600">{rangeError}</span>
+            )}
+          </div>
         </div>
-        <div className="flex flex-col">
-          <label className="text-xs text-gray-500 mb-1">Hasta</label>
-          <input
-            type="datetime-local"
-            value={customEnd}
-            min={inputMin || undefined}
-            max={inputMax || undefined}
-            onChange={(e) => setCustomEnd(e.target.value)}
-            disabled={!customEnabled}
-            className={`border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400 ${
-              !customEnabled ? "bg-gray-100 cursor-not-allowed" : ""
-            }`}
-          />
-        </div>
-        <button
-          onClick={applyCustomRange}
-          disabled={!customEnabled}
-          className={`h-[34px] sm:h-[38px] px-3 py-1.5 rounded-md text-xs sm:text-sm ${
-            customEnabled
-              ? "bg-gray-900 text-white hover:bg-black"
-              : "bg-gray-200 text-gray-500 cursor-not-allowed"
-          }`}
-        >
-          Aplicar rango
-        </button>
-        {rangeError && (
-          <span className="text-[11px] sm:text-xs text-red-600">{rangeError}</span>
-        )}
       </div>
 
       {/* Gráfico */}
@@ -563,7 +609,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 );
               })}
 
-              {/* Brush cubre todo el rango */}
+              {/* Brush */}
               <Brush
                 key={brushKey}
                 dataKey="ts"

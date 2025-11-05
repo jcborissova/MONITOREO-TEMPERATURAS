@@ -17,6 +17,10 @@ interface DashboardKPIsProps {
   disabled?: boolean;
   /** aria-label opcional del contenedor */
   ariaLabel?: string;
+
+  /** ✅ Overrides desde notificaciones */
+  criticalCountOverride?: number;     // total críticas activas
+  criticalUnreadOverride?: number;    // críticas activas no leídas
 }
 
 const toneStyles = {
@@ -63,11 +67,19 @@ const DashboardKPIs: React.FC<DashboardKPIsProps> = ({
   compact = false,
   disabled = false,
   ariaLabel = "Indicadores del dashboard",
+  criticalCountOverride,
+  criticalUnreadOverride,
 }) => {
-  const criticalAlerts = useMemo(
-    () => (rooms || []).filter((r) => r.alert).length,
-    [rooms]
-  );
+  // Si no llegan overrides desde notificaciones, caemos al conteo básico por sensor.alert
+  const criticalAlerts = useMemo(() => {
+    if (typeof criticalCountOverride === "number") return criticalCountOverride;
+    return (rooms || []).filter((r) => r.alert).length;
+  }, [rooms, criticalCountOverride]);
+
+  const unreadChip =
+    typeof criticalUnreadOverride === "number" && criticalUnreadOverride > 0
+      ? `${criticalUnreadOverride} sin leer`
+      : undefined;
 
   const avgProductivity = useMemo(() => {
     if (!rooms?.length) return 0;
@@ -123,7 +135,7 @@ const DashboardKPIs: React.FC<DashboardKPIsProps> = ({
         icon={<AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6" />}
         label="Alertas críticas"
         value={criticalAlerts}
-        subtitle={criticalAlerts > 0 ? "Revisar de inmediato" : "Sin incidencias"}
+        subtitle={criticalAlerts > 0 ? (unreadChip ?? "Revisar de inmediato") : "Sin incidencias"}
         onClick={() => onCardClick?.("alerts")}
         compact={compact}
         disabled={disabled || !onCardClick}

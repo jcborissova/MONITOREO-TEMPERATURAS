@@ -36,7 +36,7 @@ export const useNotifications = (opts?: { pollMs?: number }) => {
       t = window.setTimeout(tick, pollMs);
     };
     t = window.setTimeout(tick, pollMs);
-    const onVis = () => {}; // listener vacío pero estable
+    const onVis = () => {}; // listener estable
     document.addEventListener("visibilitychange", onVis);
     return () => {
       if (t) window.clearTimeout(t);

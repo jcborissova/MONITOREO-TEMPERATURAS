@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useRef, useState, useEffect, useCallback } from "react";
+import React, { useContext, useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { WeatherContext } from "../context/WeatherContext";
 import { SensorsContext } from "../context/SensorsContext";
 
@@ -22,7 +22,9 @@ import {
   NoSymbolIcon,
 } from "@heroicons/react/24/outline";
 
-import { locations } from "../data/Locations"; // ✅ misma fuente que WarehouseList
+import { locations } from "../data/Locations";
+import { useNotifications } from "../hooks/useNotifications";
+import type { Notification } from "../utils/notifications";
 
 /* =========================
    Helpers visuales
@@ -113,12 +115,15 @@ const Dashboard: React.FC = () => {
   const { refreshData } = useContext(WeatherContext);
   const { sensors } = useContext(SensorsContext);
 
+  // 🔔 Notificaciones crudas
+  const { all: notifications, loading: notifLoading } = useNotifications();
+
+  // Estado de carga local
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<string>("");
 
   // ======= Refs para exportaciones =======
   const dashboardRef = useRef<HTMLDivElement>(null);
-
   const multiRef = useRef<HTMLDivElement>(null);
   const tempEffRef = useRef<HTMLDivElement>(null);
   const prodRef = useRef<HTMLDivElement>(null);
@@ -132,8 +137,7 @@ const Dashboard: React.FC = () => {
   });
   const hasData = activeSensors.length > 0;
 
-  // ✅ Conteo real de almacenes desde la misma fuente que WarehouseList
-  // Si manejas un flag "active", filtra por él. Hoy, con 1 almacén:
+  // ✅ Conteo real de almacenes desde Locations
   const totalWarehouses =
     locations.filter((w: any) => w.active !== false).length || locations.length || 0;
 
@@ -214,7 +218,7 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  /** Totales */
+  /** Totales desde sensores (para gráficos/tabla) */
   const total = activeSensors.length;
   const critical = activeSensors.filter((r) => r.alert).length;
   const warning = activeSensors.filter((r) => !r.alert && r.warning).length;
@@ -229,6 +233,91 @@ const Dashboard: React.FC = () => {
       .join("\n");
     return head.join(",") + "\n" + body + "\n";
   };
+
+  /* =========================
+     Cálculo de críticas ACTIVAS (deduplicadas por regla)
+     Regla = (sensor_uid + metric + min + max) y valida contra valor EN VIVO
+  ========================= */
+  const inferMetric = (n: any): "temperature" | "humidity" | "unknown" => {
+    const m = (n?.metric || "").toString().toLowerCase();
+    if (m.includes("temp")) return "temperature";
+    if (m.includes("hum")) return "humidity";
+    const msg = (n?.message || "").toString().toLowerCase();
+    if (/%|humed/i.test(msg)) return "humidity";
+    if (/temp|°c|grados/i.test(msg)) return "temperature";
+    return "unknown";
+  };
+
+  const getLiveValue = (
+    sensor: any,
+    metric: "temperature" | "humidity" | "unknown"
+  ) => {
+    if (!sensor) return null;
+    if (metric === "temperature")
+      return typeof sensor.temperature === "number" ? sensor.temperature : null;
+    if (metric === "humidity")
+      return typeof sensor.humedity === "number" ? sensor.humedity : null;
+    return null;
+  };
+
+  const stillViolates = (
+    value: number | null,
+    min?: number | null,
+    max?: number | null
+  ) => {
+    if (value == null || Number.isNaN(value)) return false;
+    if (typeof max === "number" && value > max) return true;
+    if (typeof min === "number" && value < min) return true;
+    return false;
+  };
+
+  const { criticalActive, criticalActiveUnread } = useMemo(() => {
+    const crits = (notifications || []).filter(
+      (n: Notification) => n?.kind === "critical" && (n as any)?.sensor_uid
+    );
+
+    // Mapear sensores por UID (usamos devEUI como UID principal)
+    const sensorByUid: Record<string, any> = {};
+    for (const s of sensors) {
+      const uid = (s as any).devEUI ?? (s as any).name;
+      if (uid) sensorByUid[uid] = s;
+    }
+
+    type GroupKey = string;
+    const latestByGroup: Record<GroupKey, any> = {};
+
+    const getTs = (n: Notification) =>
+      new Date((n as any).created_at ?? (n as any).createdAt ?? 0).getTime();
+
+    for (const n of crits) {
+      const metric = inferMetric(n);
+      const min = typeof (n as any)?.threshold_min === "number" ? (n as any).threshold_min : null;
+      const max = typeof (n as any)?.threshold_max === "number" ? (n as any).threshold_max : null;
+      const key = `${(n as any).sensor_uid}::${metric}::${min ?? ""}::${max ?? ""}`;
+
+      const ts = getTs(n);
+      const prev = latestByGroup[key];
+      if (!prev || ts > getTs(prev)) {
+        latestByGroup[key] = { ...n, __metric: metric, __min: min, __max: max };
+      }
+    }
+
+    let active = 0;
+    let activeUnread = 0;
+
+    for (const key of Object.keys(latestByGroup)) {
+      const n = latestByGroup[key] as any;
+      const sensor = sensorByUid[n.sensor_uid];
+      const current = getLiveValue(sensor, n.__metric);
+
+      if (stillViolates(current, n.__min, n.__max)) {
+        active += 1;
+        if (!n.is_read) activeUnread += 1;
+      }
+    }
+
+    return { criticalActive: active, criticalActiveUnread: activeUnread };
+  }, [notifications, sensors]);
 
   return (
     <PageContainer
@@ -245,7 +334,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto relative">
-          {isLoading && (
+          {(isLoading || notifLoading) && (
             <div className="absolute inset-0 rounded-lg bg-white/60 backdrop-blur-[1px]" />
           )}
           <Button onClick={handleRefresh} disabled={isLoading} title="Refrescar">
@@ -263,7 +352,7 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* KPIs rápidos */}
+      {/* KPIs rápidos (mini) */}
       {isLoading ? (
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-6">
           {[...Array(3)].map((_, i) => (
@@ -287,7 +376,7 @@ const Dashboard: React.FC = () => {
             <p className="text-yellow-600 font-semibold text-lg sm:text-xl">{warning}</p>
           </div>
           <div className="bg-gray-50 py-2 rounded-lg border border-gray-200">
-            <p className="text-xs text-gray-500">Críticas</p>
+            <p className="text-xs text-gray-500">Críticas (sensores)</p>
             <p className="text-red-600 font-semibold text-lg sm:text-xl">{critical}</p>
           </div>
         </div>
@@ -312,10 +401,14 @@ const Dashboard: React.FC = () => {
           />
         ) : (
           <>
-            {/* KPIs superiores (ya pasan el conteo real de almacenes) */}
+            {/* KPIs superiores — con notificaciones activas deduplicadas */}
             <DashboardKPIs
               rooms={activeSensors}
               totalWarehouses={totalWarehouses}
+              loading={isLoading || notifLoading}
+              /** 👇 Solo cuenta las alertas que SIGUEN activas (deduplicadas por regla) */
+              criticalCountOverride={criticalActive}
+              criticalUnreadOverride={criticalActiveUnread}
             />
 
             {/* Gráfico principal */}
@@ -411,7 +504,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Aviso abajo si está cargando (ligero) */}
-      {isLoading && (
+      {(isLoading || notifLoading) && (
         <div className="fixed bottom-4 right-4 px-3 py-2 rounded-lg bg-white/90 border border-gray-200 shadow-md flex items-center gap-2 backdrop-blur">
           <ArrowPathIcon className="w-4 h-4 animate-spin text-gray-600" />
           <span className="text-sm text-gray-700">Actualizando datos…</span>
