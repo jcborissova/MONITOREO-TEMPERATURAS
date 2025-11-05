@@ -169,6 +169,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   // ===== 2) Construye data re-muestreada con número EXACTO de puntos =====
   const [binnedData, setBinnedData] = useState<ChartRow[]>([]);
   const [sensorNames, setSensorNames] = useState<string[]>([]);
+  const [inputMin, setInputMin] = useState<string>("");
+  const [inputMax, setInputMax] = useState<string>("");
 
   type Point = { t: number; temp: number | null; hum: number | null };
 
@@ -241,8 +243,50 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return { rows };
   };
 
-  // ===== Inicialización por defecto (7d) =====
+  // ===== Helpers para Custom =====
+  const sliceToMinute = (iso?: string) => (iso ? iso.slice(0, 16) : "");
+  const clampIsoToBounds = (iso: string, minIso: string, maxIso: string): string => {
+    const t = toSafeDate(iso).getTime();
+    const tMin = toSafeDate(minIso).getTime();
+    const tMax = toSafeDate(maxIso).getTime();
+    const clamped = Math.min(Math.max(t, tMin), tMax);
+    return new Date(clamped).toISOString();
+  };
+
+  const initCustomFromData = () => {
+    // Si no hay datos, no hacemos nada
+    if (!unified.minIso || !unified.maxIso) return;
+
+    // Prefill: TODO el rango disponible con datos
+    const sIso = unified.minIso;
+    const eIso = unified.maxIso;
+
+    setInputMin(sliceToMinute(sIso));
+    setInputMax(sliceToMinute(eIso));
+
+    const sVal = sliceToMinute(sIso);
+    const eVal = sliceToMinute(eIso);
+    setCustomStart(sVal);
+    setCustomEnd(eVal);
+
+    // Construir la data para ese rango por defecto
+    const startMs = toSafeDate(sIso).getTime();
+    const endMs = toSafeDate(eIso).getTime();
+    const dur = endMs - startMs;
+    const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
+
+    const { rows } = buildBinnedData(startMs, endMs, divisions);
+    setBinnedData(rows);
+    setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+    setBrushKey((k) => k + 1);
+    setRangeError("");
+  };
+
+  // Inicializa: 7d → 56 puntos por defecto
   useEffect(() => {
+    setInputMin(unified.minIso ? sliceToMinute(unified.minIso) : "");
+    setInputMax(unified.maxIso ? sliceToMinute(unified.maxIso) : "");
+
     const now = Date.now();
     const from = now - 7 * 24 * 3_600_000;
 
@@ -279,8 +323,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     }
 
     if (rt === "custom") {
-      // Solo cambiamos el modo; el usuario puede poner cualquier fecha libremente.
-      setRangeError("");
+      // Al pasar a personalizado, inicializamos con el rango que SÍ tiene datos.
+      initCustomFromData();
       return;
     }
 
@@ -383,35 +427,28 @@ const MultiSensorTimelineRecharts: React.FC = () => {
         })()
       : binnedData.length; // "all" → depende del rango total
 
-  // ===== Handlers: permitir cualquier fecha (sin limitar por datos) =====
+  // Handlers que EVITAN fechas inválidas en el acto
   const onStartChange = (val: string) => {
-    // No limitamos por min/max de datos: el usuario puede elegir cualquier fecha
-    if (customEnd && toSafeDate(val) > toSafeDate(customEnd)) {
-      setCustomEnd(val);
+    if (!unified.minIso || !unified.maxIso) return;
+    const clampedIso = clampIsoToBounds(val, unified.minIso, unified.maxIso);
+    const clampedVal = sliceToMinute(clampedIso);
+    if (customEnd && toSafeDate(clampedVal) > toSafeDate(customEnd)) {
+      setCustomEnd(clampedVal);
     }
-    setCustomStart(val);
+    setCustomStart(clampedVal);
     setRangeError("");
   };
 
   const onEndChange = (val: string) => {
-    // No limitamos por min/max de datos: el usuario puede elegir cualquier fecha
-    if (customStart && toSafeDate(val) < toSafeDate(customStart)) {
-      setCustomStart(val);
+    if (!unified.minIso || !unified.maxIso) return;
+    const clampedIso = clampIsoToBounds(val, unified.minIso, unified.maxIso);
+    const clampedVal = sliceToMinute(clampedIso);
+    if (customStart && toSafeDate(clampedVal) < toSafeDate(customStart)) {
+      setCustomStart(clampedVal);
     }
-    setCustomEnd(val);
+    setCustomEnd(clampedVal);
     setRangeError("");
   };
-
-  // ===== Disponibilidad (solo visual, no bloquea) =====
-  const hasAvailability = !!unified.minIso && !!unified.maxIso;
-  const availabilityLabel =
-    hasAvailability
-      ? `${new Date(unified.minIso).toLocaleString("es-DO")} — ${new Date(unified.maxIso).toLocaleString("es-DO")}`
-      : "Sin datos disponibles aún";
-
-  const availabilityBadgeClass = hasAvailability
-    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-    : "bg-gray-50 text-gray-500 border-gray-200";
 
   return (
     <div className="w-full min-w-0">
@@ -478,7 +515,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       <div className="mb-3">
         <div className="relative">
           {/* Reserva fija para que el layout no salte */}
-          <div className="min-h-[72px] sm:min-h-[80px]" />
+          <div className="min-h-[48px] sm:min-h-[56px]" />
 
           {/* Panel animado (absoluto) */}
           <div
@@ -496,6 +533,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
               <input
                 type="datetime-local"
                 value={customStart}
+                min={inputMin || undefined}
+                max={(customEnd || inputMax) || undefined}
                 onChange={(e) => onStartChange(e.target.value)}
                 className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
               />
@@ -505,6 +544,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
               <input
                 type="datetime-local"
                 value={customEnd}
+                min={(customStart || inputMin) || undefined}
+                max={inputMax || undefined}
                 onChange={(e) => onEndChange(e.target.value)}
                 className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
               />
@@ -515,17 +556,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
             >
               Aplicar rango
             </button>
-
-            {/* Indicador de disponibilidad de datos (no bloquea el rango) */}
-            <span
-              title="Rango donde sí hay datos"
-              className={`ml-auto px-2 py-1 rounded-full text-[11px] sm:text-xs border ${availabilityBadgeClass}`}
-            >
-              {hasAvailability ? `Datos disponibles: ${availabilityLabel}` : availabilityLabel}
-            </span>
-
             {rangeError && (
-              <span className="w-full text-[11px] sm:text-xs text-red-600">{rangeError}</span>
+              <span className="text-[11px] sm:text-xs text-red-600">{rangeError}</span>
             )}
           </div>
         </div>
