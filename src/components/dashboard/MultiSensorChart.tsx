@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useEffect, useMemo, useState } from "react";
+import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -14,6 +14,7 @@ import {
   Legend,
   Brush,
   ReferenceArea,
+  ReferenceLine,
 } from "recharts";
 import { WeatherContext } from "../../context/WeatherContext";
 import type { Measure } from "../../types/types";
@@ -31,7 +32,6 @@ const PRESET_DIVISIONS: Record<Exclude<RangeType, "all" | "custom">, number> = {
   "30d": 60, // cada 12 h
 };
 
-// Cada fila del chart DEBE tener "ts"
 type ChartRow = {
   ts: string;
   [key: string]: number | string | null;
@@ -73,6 +73,17 @@ const fmtTick = (iso: string) =>
     minute: "2-digit",
   });
 
+// “ahora - 10 minutos”
+const nowMinus10m = () => Date.now() - 10 * 60 * 1000;
+const adjustEndForNow = (endMs: number) => Math.min(endMs, nowMinus10m());
+
+// Día local (solo fecha, ignora hora) → límites en ms
+const dayBoundsMs = (d: Date) => {
+  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime();
+  return { start, end };
+};
+
 /* =========================================
    Componente
 ========================================= */
@@ -93,6 +104,10 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   const [customStart, setCustomStart] = useState<string>("");
   const [customEnd, setCustomEnd] = useState<string>("");
   const [rangeError, setRangeError] = useState<string>("");
+
+  // Líneas de referencia (inicio/fin visibles)
+  const [rangeStartIso, setRangeStartIso] = useState<string>("");
+  const [rangeEndIso, setRangeEndIso] = useState<string>("");
 
   // ===== 1) Normaliza timeline & series crudas =====
   const unified = useMemo(() => {
@@ -166,7 +181,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return { time, series, minIso, maxIso, names };
   }, [sensors, historyData]);
 
-  // ===== 2) Construye data re-muestreada con número EXACTO de puntos =====
+  // ===== 2) Construye data re-muestreada =====
   const [binnedData, setBinnedData] = useState<ChartRow[]>([]);
   const [sensorNames, setSensorNames] = useState<string[]>([]);
   const [inputMin, setInputMin] = useState<string>("");
@@ -174,17 +189,33 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
   type Point = { t: number; temp: number | null; hum: number | null };
 
+  const ensureBoundaryRows = (
+    rows: ChartRow[],
+    startMs: number,
+    endMs: number,
+    names: string[]
+  ) => {
+    const makeEmptyRow = (ms: number): ChartRow => {
+      const r: ChartRow = { ts: new Date(ms).toISOString() };
+      names.forEach((n) => {
+        r[`${n} °C`] = null;
+        r[`${n} %RH`] = null;
+      });
+      return r;
+    };
+    return [makeEmptyRow(startMs), ...rows, makeEmptyRow(endMs)];
+  };
+
   const buildBinnedData = (
     startMs: number,
     endMs: number,
     divisions: number
-  ): { rows: ChartRow[] } => {
+  ): { rows: ChartRow[]; startIso: string; endIso: string } => {
     const names = sensorNames.length ? sensorNames : unified.names;
     const step = (endMs - startMs) / divisions;
     const rows: ChartRow[] = [];
 
     const hasRaw = unified.time.length > 0;
-
     const sensorPoints: Record<string, Point[]> = {};
     names.forEach((name) => (sensorPoints[name] = []));
 
@@ -217,20 +248,12 @@ const MultiSensorTimelineRecharts: React.FC = () => {
           row[`${name} %RH`] = null;
           return;
         }
-        let sumT = 0,
-          cntT = 0;
-        let sumH = 0,
-          cntH = 0;
+        let sumT = 0, cntT = 0;
+        let sumH = 0, cntH = 0;
         for (const p of sensorPoints[name]) {
           if (p.t >= bStart && p.t < bEnd) {
-            if (typeof p.temp === "number") {
-              sumT += p.temp;
-              cntT++;
-            }
-            if (typeof p.hum === "number") {
-              sumH += p.hum;
-              cntH++;
-            }
+            if (typeof p.temp === "number") { sumT += p.temp; cntT++; }
+            if (typeof p.hum === "number") { sumH += p.hum; cntH++; }
           }
         }
         row[`${name} °C`] = cntT ? sumT / cntT : null;
@@ -240,7 +263,11 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       rows.push(row);
     }
 
-    return { rows };
+    const startIso = new Date(startMs).toISOString();
+    const endIso = new Date(endMs).toISOString();
+    const rowsWithBoundaries = ensureBoundaryRows(rows, startMs, endMs, names);
+
+    return { rows: rowsWithBoundaries, startIso, endIso };
   };
 
   // ===== Helpers para Custom =====
@@ -254,10 +281,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   };
 
   const initCustomFromData = () => {
-    // Si no hay datos, no hacemos nada
     if (!unified.minIso || !unified.maxIso) return;
 
-    // Prefill: TODO el rango disponible con datos
     const sIso = unified.minIso;
     const eIso = unified.maxIso;
 
@@ -269,39 +294,44 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     setCustomStart(sVal);
     setCustomEnd(eVal);
 
-    // Construir la data para ese rango por defecto
     const startMs = toSafeDate(sIso).getTime();
-    const endMs = toSafeDate(eIso).getTime();
+    let endMs = toSafeDate(eIso).getTime();
+    endMs = adjustEndForNow(endMs);
+
     const dur = endMs - startMs;
     const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
 
-    const { rows } = buildBinnedData(startMs, endMs, divisions);
+    const { rows, startIso, endIso } = buildBinnedData(startMs, endMs, divisions);
     setBinnedData(rows);
     setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+    setRangeStartIso(startIso);
+    setRangeEndIso(endIso);
     setBrushKey((k) => k + 1);
     setRangeError("");
   };
 
-  // Inicializa: 7d → 56 puntos por defecto
+  // ===== Inicializa (7d y “ahora - 10m”) =====
   useEffect(() => {
     setInputMin(unified.minIso ? sliceToMinute(unified.minIso) : "");
     setInputMax(unified.maxIso ? sliceToMinute(unified.maxIso) : "");
 
-    const now = Date.now();
-    const from = now - 7 * 24 * 3_600_000;
+    const end = adjustEndForNow(Date.now());
+    const start = end - 7 * 24 * 3_600_000;
 
     setSensorNames(unified.names);
 
-    const { rows } = buildBinnedData(from, now, PRESET_DIVISIONS["7d"]);
+    const { rows, startIso, endIso } = buildBinnedData(start, end, PRESET_DIVISIONS["7d"]);
     setBinnedData(rows);
     setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+    setRangeStartIso(startIso);
+    setRangeEndIso(endIso);
     setBrushKey((k) => k + 1);
     setRangeType("7d");
     setRangeError("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unified.names.join(","), unified.minIso, unified.maxIso]);
 
-  // ===== 3) Quick ranges EXACTOS (48 / 56 / 60) =====
+  // ===== 3) Quick ranges (ajuste “ahora - 10m”) =====
   const applyQuickRange = (rt: RangeType) => {
     setRangeType(rt);
     setRangeError("");
@@ -311,35 +341,40 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     if (rt === "all") {
       const hasData = !!unified.minIso && !!unified.maxIso;
       const startMs = hasData ? toSafeDate(unified.minIso).getTime() : now - 30 * 24 * 3_600_000;
-      const endMs = hasData ? toSafeDate(unified.maxIso).getTime() : now;
+      const rawEndMs = hasData ? toSafeDate(unified.maxIso).getTime() : now;
+      const endMs = adjustEndForNow(rawEndMs);
+
       const dur = endMs - startMs;
       const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
 
-      const { rows } = buildBinnedData(startMs, endMs, divisions);
+      const { rows, startIso, endIso } = buildBinnedData(startMs, endMs, divisions);
       setBinnedData(rows);
       setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+      setRangeStartIso(startIso);
+      setRangeEndIso(endIso);
       setBrushKey((k) => k + 1);
       return;
     }
 
     if (rt === "custom") {
-      // Al pasar a personalizado, inicializamos con el rango que SÍ tiene datos.
       initCustomFromData();
       return;
     }
 
     const hours = rt === "24h" ? 24 : rt === "7d" ? 7 * 24 : 30 * 24;
     const divisions = PRESET_DIVISIONS[rt];
-    const startMs = now - hours * 3_600_000;
-    const endMs = now;
+    const endMs = adjustEndForNow(now);
+    const startMs = endMs - hours * 3_600_000;
 
-    const { rows } = buildBinnedData(startMs, endMs, divisions);
+    const { rows, startIso, endIso } = buildBinnedData(startMs, endMs, divisions);
     setBinnedData(rows);
     setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+    setRangeStartIso(startIso);
+    setRangeEndIso(endIso);
     setBrushKey((k) => k + 1);
   };
 
-  // ===== 4) Custom range (≤24h→48, ≤7d→56, >7d→60) =====
+  // ===== 4) Custom =====
   const applyCustomRange = () => {
     setRangeError("");
 
@@ -349,7 +384,9 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     }
 
     const startMs = toSafeDate(customStart).getTime();
-    const endMs = toSafeDate(customEnd).getTime();
+    let endMs = toSafeDate(customEnd).getTime();
+    endMs = adjustEndForNow(endMs);
+
     if (!(endMs > startMs)) {
       setRangeError("El rango es inválido (fin debe ser > inicio).");
       return;
@@ -358,9 +395,11 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const dur = endMs - startMs;
     const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
 
-    const { rows } = buildBinnedData(startMs, endMs, divisions);
+    const { rows, startIso, endIso } = buildBinnedData(startMs, endMs, divisions);
     setBinnedData(rows);
     setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+    setRangeStartIso(startIso);
+    setRangeEndIso(endIso);
     setBrushKey((k) => k + 1);
   };
 
@@ -411,44 +450,87 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
   const customEnabled = rangeType === "custom";
 
-  // ==== Calcula “esperado” para el badge de verificación ====
-  const expectedPoints =
-    rangeType === "24h"
-      ? PRESET_DIVISIONS["24h"]
-      : rangeType === "7d"
-      ? PRESET_DIVISIONS["7d"]
-      : rangeType === "30d"
-      ? PRESET_DIVISIONS["30d"]
-      : rangeType === "custom"
-      ? (() => {
-          if (!customStart || !customEnd) return 0;
-          const dur = toSafeDate(customEnd).getTime() - toSafeDate(customStart).getTime();
-          return dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
-        })()
-      : binnedData.length; // "all" → depende del rango total
+  // ===== 7) AUTO-REFRESH si el rango involucra la fecha actual =====
+  useEffect(() => {
+    const today = new Date();
+    const { start: todayStartMs, end: todayEndMs } = dayBoundsMs(today);
 
-  // Handlers que EVITAN fechas inválidas en el acto
-  const onStartChange = (val: string) => {
-    if (!unified.minIso || !unified.maxIso) return;
-    const clampedIso = clampIsoToBounds(val, unified.minIso, unified.maxIso);
-    const clampedVal = sliceToMinute(clampedIso);
-    if (customEnd && toSafeDate(clampedVal) > toSafeDate(customEnd)) {
-      setCustomEnd(clampedVal);
-    }
-    setCustomStart(clampedVal);
-    setRangeError("");
-  };
+    const computeCurrentRange = ():
+      | { startMs: number; endMs: number; divisions: number; isLive: boolean }
+      | null => {
+      const now = Date.now();
 
-  const onEndChange = (val: string) => {
-    if (!unified.minIso || !unified.maxIso) return;
-    const clampedIso = clampIsoToBounds(val, unified.minIso, unified.maxIso);
-    const clampedVal = sliceToMinute(clampedIso);
-    if (customStart && toSafeDate(clampedVal) < toSafeDate(customStart)) {
-      setCustomStart(clampedVal);
-    }
-    setCustomEnd(clampedVal);
-    setRangeError("");
-  };
+      if (rangeType === "all") {
+        if (!unified.minIso || !unified.maxIso) return null;
+        const startMs = toSafeDate(unified.minIso).getTime();
+        const endMs = adjustEndForNow(toSafeDate(unified.maxIso).getTime());
+        const dur = endMs - startMs;
+        const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
+
+        const isLive = startMs <= todayEndMs && endMs >= todayStartMs;
+        return { startMs, endMs, divisions, isLive };
+      }
+
+      if (rangeType === "custom" && customStart && customEnd) {
+        const startMs = toSafeDate(customStart).getTime();
+        const endMs = adjustEndForNow(toSafeDate(customEnd).getTime());
+        const dur = endMs - startMs;
+        const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
+
+        const isLive = startMs <= todayEndMs && endMs >= todayStartMs;
+        return { startMs, endMs, divisions, isLive };
+      }
+
+      // Presets
+      const hours = rangeType === "24h" ? 24 : rangeType === "7d" ? 7 * 24 : 30 * 24;
+      const divisions = PRESET_DIVISIONS[rangeType as Exclude<RangeType, "all" | "custom">];
+      const endMs = adjustEndForNow(now);
+      const startMs = endMs - hours * 3_600_000;
+
+      const isLive = startMs <= todayEndMs && endMs >= todayStartMs;
+      return { startMs, endMs, divisions, isLive };
+    };
+
+    const conf = computeCurrentRange();
+    if (!conf) return;
+
+    const rebuild = () => {
+      const next = computeCurrentRange() ?? conf;
+      const { rows, startIso, endIso } = buildBinnedData(next.startMs, next.endMs, next.divisions);
+      setBinnedData(rows);
+      setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+      setRangeStartIso(startIso);
+      setRangeEndIso(endIso);
+      setBrushKey((k) => k + 1);
+    };
+
+    // Solo auto-refresh si “involucra hoy”
+    if (!conf.isLive) return;
+
+    // Alinear al próximo múltiplo de 10 minutos
+    const now = Date.now();
+    const bucket = 10 * 60 * 1000;
+    const msToNext10m = bucket - (now % bucket);
+
+    const startTimeout = window.setTimeout(() => {
+      rebuild();
+      const interval = window.setInterval(rebuild, bucket);
+      (rebuild as any).__interval = interval;
+    }, msToNext10m);
+
+    // Refrescar al volver a la pestaña
+    const onVis = () => {
+      if (document.visibilityState === "visible") rebuild();
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      window.clearTimeout(startTimeout);
+      const interval = (rebuild as any).__interval as number | undefined;
+      if (interval) window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [rangeType, customStart, customEnd, unified.minIso, unified.maxIso, unified.names.join(",")]);
 
   return (
     <div className="w-full min-w-0">
@@ -503,27 +585,23 @@ const MultiSensorTimelineRecharts: React.FC = () => {
             </button>
           ))}
 
-          {/* Badge de verificación de puntos */}
+          {/* Badge simple de puntos */}
           <span className="ml-1 px-2 py-1 rounded-full text-[11px] sm:text-xs bg-indigo-50 text-indigo-700 border border-indigo-100">
             Puntos: {binnedData.length}
-            {expectedPoints ? ` / ${expectedPoints}` : ""}
           </span>
         </div>
       </div>
 
-      {/* Custom range (MISMO LAYOUT; aparece/desaparece con elegancia) */}
+      {/* Custom range */}
       <div className="mb-3">
         <div className="relative">
-          {/* Reserva fija para que el layout no salte */}
           <div className="min-h-[48px] sm:min-h-[56px]" />
-
-          {/* Panel animado (absoluto) */}
           <div
-            aria-hidden={!customEnabled}
+            aria-hidden={rangeType !== "custom"}
             className={[
               "absolute inset-0 flex flex-wrap items-end gap-2 sm:gap-3",
               "transition-all duration-300 ease-out will-change-transform will-change-opacity",
-              customEnabled
+              rangeType === "custom"
                 ? "opacity-100 translate-y-0"
                 : "opacity-0 -translate-y-1 pointer-events-none",
             ].join(" ")}
@@ -535,7 +613,17 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 value={customStart}
                 min={inputMin || undefined}
                 max={(customEnd || inputMax) || undefined}
-                onChange={(e) => onStartChange(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!unified.minIso || !unified.maxIso) return;
+                  const clampedIso = clampIsoToBounds(val, unified.minIso, unified.maxIso);
+                  const clampedVal = sliceToMinute(clampedIso);
+                  if (customEnd && toSafeDate(clampedVal) > toSafeDate(customEnd)) {
+                    setCustomEnd(clampedVal);
+                  }
+                  setCustomStart(clampedVal);
+                  setRangeError("");
+                }}
                 className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
               />
             </div>
@@ -546,7 +634,17 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 value={customEnd}
                 min={(customStart || inputMin) || undefined}
                 max={inputMax || undefined}
-                onChange={(e) => onEndChange(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!unified.minIso || !unified.maxIso) return;
+                  const clampedIso = clampIsoToBounds(val, unified.minIso, unified.maxIso);
+                  const clampedVal = sliceToMinute(clampedIso);
+                  if (customStart && toSafeDate(clampedVal) < toSafeDate(customStart)) {
+                    setCustomStart(clampedVal);
+                  }
+                  setCustomEnd(clampedVal);
+                  setRangeError("");
+                }}
                 className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
               />
             </div>
@@ -575,8 +673,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 minTickGap={24}
                 tickFormatter={(v: string) => fmtTick(v)}
               />
-
-              {/* Ejes */}
               <YAxis
                 yAxisId="temp"
                 domain={[-40, 110]}
@@ -602,6 +698,14 @@ const MultiSensorTimelineRecharts: React.FC = () => {
               {/* Bandas sugeridas */}
               <ReferenceArea yAxisId="temp" y1={24} y2={30} fill="#EFF6FF" fillOpacity={0.35} />
               <ReferenceArea yAxisId="hum" y1={40} y2={60} fill="#ECFDF5" fillOpacity={0.25} />
+
+              {/* Líneas de referencia de inicio/fin */}
+              {rangeStartIso && (
+                <ReferenceLine x={rangeStartIso} stroke="#9CA3AF" strokeDasharray="3 3" />
+              )}
+              {rangeEndIso && (
+                <ReferenceLine x={rangeEndIso} stroke="#9CA3AF" strokeDasharray="3 3" />
+              )}
 
               {/* Series */}
               {(sensorNames.length ? sensorNames : unified.names).map((name, idx) => {
