@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -447,8 +447,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     setBrushKey((k) => k + 1);
     setRangeError("");
   };
-
-  const customEnabled = rangeType === "custom";
 
   // ===== 7) AUTO-REFRESH si el rango involucra la fecha actual =====
   useEffect(() => {
