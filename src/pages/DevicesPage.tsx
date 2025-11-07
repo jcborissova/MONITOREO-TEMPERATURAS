@@ -20,7 +20,7 @@ import { WeatherContext } from "../context/WeatherContext";
 import type { Room, Measure } from "../types/types";
 
 /* =========================
-   Utils
+   Utils de tiempo/fechas
 ========================= */
 const normalizeDate = (value: any): string => {
   if (!value) return new Date().toISOString();
@@ -37,56 +37,38 @@ const normalizeDate = (value: any): string => {
   return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 };
 
-const renderBattery = (level?: number) => {
-  if (level == null || Number.isNaN(level)) return "—";
-  if (level >= 80) {
-    return (
-      <span className="flex items-center text-green-600 font-semibold">
-        <Battery100Icon className="w-5 h-5 mr-1" /> {Math.round(level)}%
-      </span>
-    );
-  }
-  if (level >= 40) {
-    return (
-      <span className="flex items-center text-yellow-500 font-semibold">
-        <Battery50Icon className="w-5 h-5 mr-1" /> {Math.round(level)}%
-      </span>
-    );
-  }
-  return (
-    <span className="flex items-center text-red-500 font-semibold">
-      <Battery0Icon className="w-5 h-5 mr-1" /> {Math.round(level)}%
-    </span>
-  );
-};
-
-const renderConnectionStatus = (updatedAt?: string | Date) => {
+const getConnInfo = (updatedAt?: string | Date) => {
   if (!updatedAt) {
-    return (
-      <span className="flex items-center gap-1 text-red-500 font-medium">
-        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-        Desconectado
-      </span>
-    );
+    return { isConnected: false, last: null as Date | null, diffMin: Infinity };
   }
   const last = new Date(updatedAt);
   const diffMin = (Date.now() - last.getTime()) / 60000;
-  const isOk = diffMin <= 5;
-  return isOk ? (
-    <span className="flex items-center gap-1 text-green-600 font-medium">
-      <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-      Conectado
-    </span>
-  ) : (
-    <span className="flex items-center gap-1 text-red-500 font-medium">
-      <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-      Desconectado
-    </span>
-  );
+  return { isConnected: diffMin <= 5, last, diffMin };
+};
+
+const formatLastSeen = (d: Date | null) => {
+  if (!d) return "desconocido";
+  return d.toLocaleString("es-DO", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const formatRelative = (min: number) => {
+  if (!isFinite(min)) return "";
+  if (min < 1) return "menos de 1 min";
+  if (min < 60) return `${Math.floor(min)} min`;
+  const h = min / 60;
+  if (h < 24) return `${Math.floor(h)} h`;
+  const d = h / 24;
+  return `${Math.floor(d)} d`;
 };
 
 /* =========================
-   UI Helpers
+   UI helpers
 ========================= */
 const Button = ({
   children,
@@ -148,6 +130,73 @@ const EmptyState = ({ onRetry }: { onRetry: () => void }) => (
 );
 
 /* =========================
+   Render helpers (estado/batería)
+========================= */
+const renderConnectionStatus = (updatedAt?: string | Date) => {
+  const { isConnected, last, diffMin } = getConnInfo(updatedAt);
+  if (isConnected) {
+    return (
+      <div className="flex flex-col">
+        <span className="flex items-center gap-1 text-green-600 font-medium">
+          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+          Conectado
+        </span>
+        <span className="text-xs text-gray-500">
+          Última lectura: {formatLastSeen(last)} (hace {formatRelative(diffMin)})
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col">
+      <span className="flex items-center gap-1 text-red-500 font-medium">
+        <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+        Desconectado
+      </span>
+      <span className="text-xs text-gray-500">
+        Última conexión: {formatLastSeen(last)}
+        {isFinite(diffMin) ? ` (hace ${formatRelative(diffMin)})` : ""}
+      </span>
+    </div>
+  );
+};
+
+const renderBattery = (level: number | undefined | null, isConnected: boolean) => {
+  // Si está offline: mostrar claro y con ícono de "offline"
+  if (!isConnected) {
+    return (
+      <span className="flex items-center text-gray-400 font-medium">
+        <NoSymbolIcon className="w-5 h-5 mr-1" />
+        Offline
+      </span>
+    );
+  }
+
+  if (level == null || Number.isNaN(level)) return "—";
+  const pct = Math.round(Number(level));
+
+  if (pct >= 80) {
+    return (
+      <span className="flex items-center text-green-600 font-semibold">
+        <Battery100Icon className="w-5 h-5 mr-1" /> {pct}%
+      </span>
+    );
+  }
+  if (pct >= 40) {
+    return (
+      <span className="flex items-center text-yellow-500 font-semibold">
+        <Battery50Icon className="w-5 h-5 mr-1" /> {pct}%
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center text-red-500 font-semibold">
+      <Battery0Icon className="w-5 h-5 mr-1" /> {pct}%
+    </span>
+  );
+};
+
+/* =========================
    Componente principal
 ========================= */
 const DevicesPage: React.FC = () => {
@@ -156,7 +205,6 @@ const DevicesPage: React.FC = () => {
 
   const [selectedDevice, setSelectedDevice] = useState<Room | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // 👉 id real que pasa al modal (el modal se encarga de consultar el API)
@@ -283,14 +331,15 @@ const DevicesPage: React.FC = () => {
               key: "battery",
               label: "Batería",
               align: "left",
-              render: (_v, row) =>
-                renderBattery(
-                  Number(
-                    (row as any).battery ??
-                      (row as any).lastPower ??
-                      (row as any).productivity
-                  )
-                ),
+              render: (_v, row) => {
+                const { isConnected } = getConnInfo((row as any).updatedAt);
+                const level = Number(
+                  (row as any).battery ??
+                  (row as any).lastPower ??
+                  (row as any).productivity
+                );
+                return renderBattery(Number.isFinite(level) ? level : undefined, isConnected);
+              },
             },
             {
               key: "updatedAt",
@@ -302,14 +351,19 @@ const DevicesPage: React.FC = () => {
               key: "temperature",
               label: "Temperatura (°C)",
               align: "right",
-              render: (v) =>
-                v != null && !Number.isNaN(v) ? Number(v).toFixed(1) : "—",
+              render: (v, row) => {
+                const { isConnected } = getConnInfo((row as any).updatedAt);
+                if (!isConnected) return "—";
+                return v != null && !Number.isNaN(v) ? Number(v).toFixed(1) : "—";
+              },
             },
             {
               key: "humedity",
               label: "Humedad (%RH)",
               align: "right",
               render: (v, row) => {
+                const { isConnected } = getConnInfo((row as any).updatedAt);
+                if (!isConnected) return "—";
                 const h = v ?? (row as any).humidity ?? (row as any).data?.humidity ?? null;
                 return h != null && !Number.isNaN(h) ? Number(h).toFixed(1) : "—";
               },

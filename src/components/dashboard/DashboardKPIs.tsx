@@ -1,3 +1,5 @@
+/* eslint-disable react-hooks/rules-of-hooks */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { useMemo } from "react";
 import { Warehouse, AlertTriangle, Activity, Droplet } from "lucide-react";
@@ -21,8 +23,14 @@ interface DashboardKPIsProps {
   /** ✅ Overrides desde notificaciones */
   criticalCountOverride?: number;     // total críticas activas
   criticalUnreadOverride?: number;    // críticas activas no leídas
+
+  /** Ventana para considerar “conectado” en minutos (default 5) */
+  freshnessMinutes?: number;
 }
 
+/* =========================
+   Helpers
+========================= */
 const toneStyles = {
   primary: {
     ring: "ring-blue-100 dark:ring-blue-900/30",
@@ -56,6 +64,35 @@ const toneStyles = {
 
 type Tone = keyof typeof toneStyles;
 
+const toMs = (v: any): number => {
+  if (!v) return 0;
+  const d =
+    typeof v === "number"
+      ? new Date(v < 9_999_999_999 ? v * 1000 : v)
+      : typeof v === "string"
+      ? new Date(v.includes(" ") ? v.replace(" ", "T") : v)
+      : new Date(v);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+const formatRelative = (ms: number): string => {
+  if (!ms) return "Nunca";
+  const diff = Date.now() - ms;
+  if (diff < 0) return "en el futuro";
+  const sec = Math.floor(diff / 1000);
+  const min = Math.floor(sec / 60);
+  const hr = Math.floor(min / 60);
+  const day = Math.floor(hr / 24);
+  if (sec < 45) return "hace unos segundos";
+  if (min < 2) return "hace 1 min";
+  if (min < 60) return `hace ${min} min`;
+  if (hr < 2) return "hace 1 h";
+  if (hr < 24) return `hace ${hr} h`;
+  if (day < 2) return "ayer";
+  return `hace ${day} días`;
+};
+
 /* =========================
    KPI GRID (móvil-first)
 ========================= */
@@ -69,24 +106,8 @@ const DashboardKPIs: React.FC<DashboardKPIsProps> = ({
   ariaLabel = "Indicadores del dashboard",
   criticalCountOverride,
   criticalUnreadOverride,
+  freshnessMinutes = 5,
 }) => {
-  // Si no llegan overrides desde notificaciones, caemos al conteo básico por sensor.alert
-  const criticalAlerts = useMemo(() => {
-    if (typeof criticalCountOverride === "number") return criticalCountOverride;
-    return (rooms || []).filter((r) => r.alert).length;
-  }, [rooms, criticalCountOverride]);
-
-  const unreadChip =
-    typeof criticalUnreadOverride === "number" && criticalUnreadOverride > 0
-      ? `${criticalUnreadOverride} sin leer`
-      : undefined;
-
-  const avgProductivity = useMemo(() => {
-    if (!rooms?.length) return 0;
-    const sum = rooms.reduce((acc, r) => acc + (r.productivity ?? 0), 0);
-    return Math.round(sum / rooms.length);
-  }, [rooms]);
-
   const gridCls =
     "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4";
 
@@ -116,6 +137,70 @@ const DashboardKPIs: React.FC<DashboardKPIsProps> = ({
       ? totalWarehouses
       : 0;
 
+  // ===== Datos enriquecidos =====
+  const {
+    countCritical,
+    countConnected,
+    roomsCount,
+    avgProductivity,
+    lastUpdateMs,
+  } = useMemo(() => {
+    const r = rooms ?? [];
+    const now = Date.now();
+    const windowMs = freshnessMinutes * 60 * 1000;
+
+    let _crit = 0;
+    let _conn = 0;
+    let _disc = 0;
+    let _sumProd = 0;
+    let _last = 0;
+
+    for (const z of r) {
+      if ((z as any).alert) _crit += 1;
+      const updatedMs = toMs(
+        (z as any).updatedAt ??
+          (z as any).lastSeen ??
+          (z as any).timestamp ??
+          (z as any).last_update
+      );
+      if (updatedMs) {
+        _last = Math.max(_last, updatedMs);
+        if (now - updatedMs <= windowMs) _conn += 1;
+        else _disc += 1;
+      } else {
+        _disc += 1;
+      }
+      const p = Number((z as any).productivity ?? 0);
+      _sumProd += Number.isFinite(p) ? p : 0;
+    }
+
+    const count = r.length;
+    const avg = count ? Math.round(_sumProd / count) : 0;
+
+    return {
+      countCritical: _crit,
+      countConnected: _conn,
+      countDisconnected: _disc,
+      roomsCount: count,
+      avgProductivity: avg,
+      lastUpdateMs: _last,
+    };
+  }, [rooms, freshnessMinutes]);
+
+  const criticalAlerts =
+    typeof criticalCountOverride === "number"
+      ? criticalCountOverride
+      : countCritical;
+
+  const unreadChip =
+    typeof criticalUnreadOverride === "number" && criticalUnreadOverride > 0
+      ? `${criticalUnreadOverride} sin leer`
+      : undefined;
+
+  const connectedPct =
+    roomsCount > 0 ? Math.round((countConnected / roomsCount) * 100) : 0;
+
+  // ===== Render =====
   return (
     <section
       className={gridCls + " pb-[env(safe-area-inset-bottom)]"}
@@ -126,39 +211,60 @@ const DashboardKPIs: React.FC<DashboardKPIsProps> = ({
         icon={<Warehouse className="w-5 h-5 sm:w-6 sm:h-6" />}
         label="Almacenes activos"
         value={warehousesCount}
+        subtitle={warehousesCount ? "En operación" : "Sin registros"}
         onClick={() => onCardClick?.("warehouses")}
         compact={compact}
         disabled={disabled || !onCardClick}
       />
+
       <KPI
         tone="danger"
         icon={<AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6" />}
         label="Alertas críticas"
         value={criticalAlerts}
-        subtitle={criticalAlerts > 0 ? (unreadChip ?? "Revisar de inmediato") : "Sin incidencias"}
+        subtitle={
+          criticalAlerts > 0 ? (unreadChip ?? "Revisar de inmediato") : "Sin incidencias"
+        }
         onClick={() => onCardClick?.("alerts")}
         compact={compact}
         disabled={disabled || !onCardClick}
       />
+
       <KPI
         tone="success"
         icon={<Activity className="w-5 h-5 sm:w-6 sm:h-6" />}
         label="Productividad promedio"
         value={`${avgProductivity}%`}
-        subtitle={rooms.length ? `${rooms.length} zonas` : undefined}
+        subtitle={roomsCount ? `${roomsCount} zonas` : undefined}
         onClick={() => onCardClick?.("productivity")}
         compact={compact}
         disabled={disabled || !onCardClick}
       />
+
       <KPI
         tone="info"
         icon={<Droplet className="w-5 h-5 sm:w-6 sm:h-6" />}
         label="Zonas monitoreadas"
-        value={rooms.length}
+        value={roomsCount}
+        subtitle={
+          roomsCount
+            ? `${countConnected}/${roomsCount} conectadas · ${connectedPct}%`
+            : undefined
+        }
         onClick={() => onCardClick?.("zones")}
         compact={compact}
         disabled={disabled || !onCardClick}
       />
+
+      {/* ===== Línea de estado global (abajo) ===== */}
+      <div className="col-span-1 sm:col-span-2 lg:col-span-4 mt-1">
+        <p className={`text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 ${compact ? "px-1" : "px-0"}`}>
+          Datos: <b className="text-gray-700 dark:text-gray-300">{new Date().toLocaleString("es-DO")}</b>
+          {" • "}
+          Actualizado: <b className="text-gray-700 dark:text-gray-300">{formatRelative(lastUpdateMs)}</b>
+          {lastUpdateMs ? ` (${new Date(lastUpdateMs).toLocaleString("es-DO")})` : " (—)"}
+        </p>
+      </div>
     </section>
   );
 };

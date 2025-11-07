@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState} from "react";
 import {
   ResponsiveContainer,
   PieChart,
@@ -27,10 +27,44 @@ interface StatusPieChartProps {
 
 /** Paleta daltónico-friendly */
 const COLORS = {
-  normal: "#22C55E",     // green-500
-  warning: "#EAB308",    // yellow-500
-  critical: "#EF4444",   // red-500
+  normal: "#22C55E",   // green-500
+  warning: "#EAB308",  // yellow-500
+  critical: "#EF4444", // red-500
 } as const;
+
+// Util fecha segura
+const toMs = (v: any): number => {
+  if (!v) return 0;
+  const d =
+    typeof v === "number"
+      ? new Date(v < 9_999_999_999 ? v * 1000 : v)
+      : typeof v === "string"
+      ? new Date(v.includes(" ") ? v.replace(" ", "T") : v)
+      : new Date(v);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+const useNowTick = (stepMs = 60_000) => {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), stepMs);
+    return () => window.clearInterval(id);
+  }, [stepMs]);
+};
+
+const formatRelative = (ms: number) => {
+  if (!ms) return "—";
+  const diff = Date.now() - ms;
+  if (diff < 30_000) return "hace un momento";
+  if (diff < 60_000) return "hace menos de 1 min";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `hace ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.floor(hours / 24);
+  return `hace ${days} d`;
+};
 
 const StatusPieChart: React.FC<StatusPieChartProps> = ({
   rooms,
@@ -40,31 +74,46 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({
   onSliceClick,
   maxNamesPerGroup = 12,
 }) => {
+  // refresca la etiqueta “hace X min” cada 60s
+  useNowTick(60_000);
+
   const [expanded, setExpanded] = useState<{ normal: boolean; warning: boolean; critical: boolean }>({
     normal: false,
     warning: false,
     critical: false,
   });
 
-  const { pieData, total, zoneGroups } = useMemo(() => {
-    const criticalZones = (rooms ?? []).filter((r) => r.alert);
-    const warningZones = (rooms ?? []).filter((r) => !r.alert && r.warning);
-    const normalZones   = (rooms ?? []).filter((r) => !r.alert && !r.warning);
+  const { pieData, total, zoneGroups, lastUpdatedMs } = useMemo(() => {
+    const list = Array.isArray(rooms) ? rooms : [];
+    const criticalZones = list.filter((r) => (r as any)?.alert);
+    const warningZones = list.filter((r) => !(r as any)?.alert && (r as any)?.warning);
+    const normalZones  = list.filter((r) => !(r as any)?.alert && !(r as any)?.warning);
 
     const data = [
-      { key: "normal" as const, name: "Normal",      value: normalZones.length,   color: COLORS.normal },
+      { key: "normal" as const, name: "Normal",       value: normalZones.length,   color: COLORS.normal },
       { key: "warning" as const, name: "Advertencia", value: warningZones.length, color: COLORS.warning },
-      { key: "critical" as const, name: "Crítico",    value: criticalZones.length, color: COLORS.critical },
+      { key: "critical" as const, name: "Crítico",     value: criticalZones.length, color: COLORS.critical },
     ];
+
+    // última actualización: máximo updatedAt (o campo similar) entre rooms
+    const lastMs = list.reduce((max, r) => {
+      const u =
+        (r as any)?.updatedAt ??
+        (r as any)?.lastSeen ??
+        (r as any)?.lastUpdate ??
+        (r as any)?.timestamp;
+      return Math.max(max, toMs(u));
+    }, 0);
 
     return {
       pieData: data,
-      total: rooms?.length ?? 0,
+      total: list.length,
       zoneGroups: {
         normal: normalZones.map((z) => z.deviceName || z.name || "Zona"),
         warning: warningZones.map((z) => z.deviceName || z.name || "Zona"),
         critical: criticalZones.map((z) => z.deviceName || z.name || "Zona"),
       },
+      lastUpdatedMs: lastMs,
     };
   }, [rooms]);
 
@@ -88,7 +137,9 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({
 
   if (total === 0) {
     return (
-      <div className={`flex flex-col items-center justify-center text-gray-400 text-sm bg-white border border-gray-100 rounded-2xl shadow-sm ${compact ? "p-4 h-[200px]" : "p-6 h-[240px]"} ${className}`}>
+      <div
+        className={`flex flex-col items-center justify-center text-gray-400 text-sm bg-white border border-gray-100 rounded-2xl shadow-sm ${compact ? "p-4 h-[200px]" : "p-6 h-[240px]"} ${className}`}
+      >
         Sin datos disponibles
       </div>
     );
@@ -117,17 +168,23 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({
     ? { inner: "42%", outer: "70%" }
     : { inner: "45%", outer: "75%" };
 
-  // Leyenda compacta con totales
-  const Legend = () => (
-    <div className="grid grid-cols-3 gap-2 text-xs sm:text-sm text-gray-700">
+  // Leyenda compacta con totales + clic en cada estado
+  const LegendCompact = () => (
+    <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs sm:text-sm text-gray-700">
       {pieData.map((d) => {
         const pct = total ? Math.round((d.value / total) * 100) : 0;
         return (
           <button
             key={d.key}
             type="button"
-            className="flex items-center gap-2 hover:opacity-80 transition"
+            className="flex items-center gap-2 hover:opacity-85 transition outline-none focus:ring-2 focus:ring-blue-200 rounded"
             onClick={() => onSliceClick?.(d.key, zoneGroups[d.key])}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSliceClick?.(d.key, zoneGroups[d.key]);
+              }
+            }}
             title={`Filtrar: ${d.name}`}
           >
             <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: d.color }} />
@@ -161,7 +218,12 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({
             onClick={() => setExpanded((e) => ({ ...e, [type]: !e[type] }))}
             aria-expanded={open}
           >
-            {title} ({items.length}) {items.length > maxNamesPerGroup && <span className="text-xs text-gray-400">{open ? "• ver menos" : "• ver más"}</span>}
+            {title} ({items.length}){" "}
+            {items.length > maxNamesPerGroup && (
+              <span className="text-xs text-gray-400">
+                {open ? "• ver menos" : "• ver más"}
+              </span>
+            )}
           </button>
         </div>
         <p className="text-gray-700 text-xs md:text-sm ml-6 break-words">
@@ -172,24 +234,38 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({
     );
   };
 
+  const lastUpdateStr = formatRelative(lastUpdatedMs);
+  const lastUpdateAbs = lastUpdatedMs ? new Date(lastUpdatedMs).toLocaleString("es-DO") : null;
+
   return (
     <div
       className={`bg-white border border-gray-100 rounded-2xl shadow-sm p-4 md:p-6 space-y-4 ${className}`}
       role="region"
       aria-label="Estado general de zonas"
     >
-      {/* Título */}
-      <div className="text-center">
-        <h3 className="text-gray-800 text-base md:text-lg font-semibold">
-          Estado General de Zonas
-        </h3>
-        <p className="text-gray-500 text-xs md:text-sm">
-          {total} zona{total !== 1 ? "s" : ""} monitoreadas
-        </p>
+      {/* Header: título + última actualización */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex-1 min-w-[180px] text-center sm:text-left">
+          <h3 className="text-gray-800 text-base md:text-lg font-semibold">
+            Estado General de Zonas
+          </h3>
+          <p className="text-gray-500 text-xs md:text-sm">
+            {total} zona{total !== 1 ? "s" : ""} monitoreadas
+          </p>
+        </div>
+        <div className="text-xs sm:text-sm text-gray-500">
+          <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-gray-200 bg-gray-50">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            Última actualización:{" "}
+            <b title={lastUpdateAbs ?? undefined} className="text-gray-700">
+              {lastUpdateStr}
+            </b>
+          </span>
+        </div>
       </div>
 
       {/* Leyenda rápida */}
-      <Legend />
+      <LegendCompact />
 
       {/* Gráfico */}
       <div className={`${compact ? "h-[200px] sm:h-[220px]" : "h-[240px] sm:h-[280px] md:h-[320px]"}`}>
@@ -214,6 +290,7 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({
             <Pie
               data={pieData}
               dataKey="value"
+              nameKey="name"
               cx="50%"
               cy="50%"
               innerRadius={radius.inner}
@@ -225,6 +302,7 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({
                 if (dp?.key) onSliceClick?.(dp.key, zoneGroups[dp.key]);
               }}
               labelLine={false}
+              // Evitamos problemas de tipos usando una función simple
               label={({ value }: any) =>
                 total > 0 ? `${((Number(value) / total) * 100).toFixed(1)}%` : "0%"
               }
@@ -245,7 +323,7 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({
                 />
               ))}
               <Label
-                value={`${total} zonas`}
+                value={`${total} ${total === 1 ? "zona" : "zonas"}`}
                 position="center"
                 fill="#374151"
                 fontSize={14}
@@ -258,7 +336,7 @@ const StatusPieChart: React.FC<StatusPieChartProps> = ({
         </ResponsiveContainer>
       </div>
 
-      {/* Listado de zonas */}
+      {/* Listado de zonas por grupo */}
       <div className="divide-y divide-gray-200 text-sm mt-2">
         <GroupList
           type="critical"

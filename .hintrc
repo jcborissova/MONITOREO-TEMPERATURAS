@@ -18,6 +18,7 @@
       }
     ],
     "axe/forms": "off",
-    "axe/aria": "off"
+    "axe/aria": "off",
+    "no-inline-styles": "off"
   }
 }

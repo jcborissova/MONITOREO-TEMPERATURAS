@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -14,17 +14,21 @@ import {
   Legend,
   ReferenceArea,
   LabelList,
+  ReferenceLine,
 } from "recharts";
 import { WeatherContext } from "../../context/WeatherContext";
 import type { Measure } from "../../types/types";
 
+/* =========================
+   Tipos / Props
+========================= */
 type SortBy = "none" | "asc" | "desc";
 
 interface TemperatureEffectivenessChartProps {
   /** Rango ideal; por defecto [-20, -5] */
   minLimit?: number;
   maxLimit?: number;
-  /** Ordenar por temperatura promedio */
+  /** Ordenar por temperatura promedio (none|asc|desc) */
   sortBy?: SortBy;
   /** Mostrar skeleton de carga */
   loading?: boolean;
@@ -32,8 +36,17 @@ interface TemperatureEffectivenessChartProps {
   onBarClick?: (payload: { zone: string; avgTemp: number }) => void;
   /** Clase extra del contenedor */
   className?: string;
+  /** Minutos para considerar un dispositivo online (default: 5) */
+  liveWindowMin?: number;
+  /** Ocultar barras offline del gráfico (default: false = se muestran con patrón) */
+  hideOffline?: boolean;
+  /** Excluir zonas offline del cálculo del promedio global (default: true) */
+  excludeOfflineFromGlobalAvg?: boolean;
 }
 
+/* =========================
+   Hooks / helpers UI
+========================= */
 const useIsNarrow = (query = "(max-width: 640px)") => {
   const [narrow, setNarrow] = useState(false);
   useEffect(() => {
@@ -54,15 +67,58 @@ const clamp = (v: number | null | undefined, min = -40, max = 110) => {
 };
 
 // Truncado para etiquetas en ejes
-const ellipsize = (s: string, max = 16) => (s.length > max ? s.slice(0, max - 1) + "…" : s);
+const ellipsize = (s: string, max = 16) => (s?.length > max ? s.slice(0, max - 1) + "…" : s);
 
-// Color por estado vs rango
+// Colores según rango
 const colorFor = (t: number, minLimit: number, maxLimit: number) => {
-  if (t < minLimit - 3 || t > maxLimit + 3) return "#EF4444"; // rojo
-  if (t < minLimit || t > maxLimit) return "#F59E0B"; // ámbar
-  return "#16A34A"; // verde
+  if (t < minLimit - 3 || t > maxLimit + 3) return "#EF4444"; // rojo (muy fuera)
+  if (t < minLimit || t > maxLimit) return "#F59E0B"; // ámbar (cerca, fuera)
+  return "#16A34A"; // verde (dentro)
 };
 
+// Fecha segura
+const toSafeDate = (v: any): Date | null => {
+  if (!v && v !== 0) return null;
+  if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+  if (typeof v === "number") {
+    const ms = v < 9_999_999_999 ? v * 1000 : v;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof v === "string") {
+    const s = v.includes(" ") ? v.replace(" ", "T") : v;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(v as any);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const fmtAbs = (d: Date | null) =>
+  d
+    ? d.toLocaleString("es-DO", {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "desconocido";
+
+const fmtRel = (d: Date | null) => {
+  if (!d) return "";
+  const min = (Date.now() - d.getTime()) / 60000;
+  if (min < 1) return "menos de 1 min";
+  if (min < 60) return `${Math.floor(min)} min`;
+  const h = min / 60;
+  if (h < 24) return `${Math.floor(h)} h`;
+  const days = Math.floor(h / 24);
+  return `${days} d`;
+};
+
+/* =========================
+   Componente principal
+========================= */
 const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessChartProps> = ({
   minLimit = -20,
   maxLimit = -5,
@@ -70,36 +126,99 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
   loading = false,
   onBarClick,
   className = "",
+  liveWindowMin = 5,
+  hideOffline = false,
+  excludeOfflineFromGlobalAvg = true,
 }) => {
   const { sensors, historyData } = useContext(WeatherContext);
   const isNarrow = useIsNarrow();
 
-  // Calcular promedio por zona
-  const avgData = useMemo(() => {
-    if (!sensors?.length || !historyData) return [] as { zone: string; avgTemp: number }[];
-    const items = sensors.map((sensor) => {
+  // ====== Enriquecer datos: promedio, lastSeen, online/offline ======
+  const enriched = useMemo(() => {
+    if (!sensors?.length || !historyData) return [] as Array<{
+      zone: string;
+      avgTemp: number;
+      lastSeen: Date | null;
+      isConnected: boolean;
+    }>;
+
+    const rows = sensors.map((sensor, i) => {
       const key = (sensor as any).devEUI ?? sensor.name;
-      const history: Measure[] = historyData[key] || [];
-      const temps = history
-        .map((h) => clamp((h as any)?.temperature ?? (h as any)?.data?.temperature, -100, 200))
+      const list: Measure[] = historyData[key] || [];
+
+      // temperaturas de todo el historial disponible (puedes acotar si lo necesitas)
+      const temps = list
+        .map((m) =>
+          clamp(
+            (m as any)?.temperature ??
+              (m as any)?.data?.temperature ??
+              (m as any)?.temp,
+            -100,
+            200
+          )
+        )
         .filter((v): v is number => v !== null && !isNaN(v));
-      const avg = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
+
+      const avg = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : NaN;
+
+      // determinar última actualización a partir del historial o del propio sensor
+      const lastRaw =
+        list.length
+          ? (list[list.length - 1] as any).timestamp ??
+            (list[list.length - 1] as any).created_at ??
+            (list[list.length - 1] as any).updatedAt ??
+            (list[list.length - 1] as any).date
+          : (sensor as any).updatedAt ??
+            (sensor as any).lastSeen ??
+            (sensor as any).timestamp ??
+            (sensor as any).date;
+
+      const lastSeen = toSafeDate(lastRaw);
+      const isConnected = !!lastSeen && (Date.now() - lastSeen.getTime()) / 60000 <= liveWindowMin;
+
       return {
-        zone: (sensor as any).deviceName || sensor.name || key,
-        avgTemp: Number(avg.toFixed(2)),
+        zone: (sensor as any).deviceName || sensor.name || key || `Zona ${i + 1}`,
+        avgTemp: Number.isFinite(avg) ? Number(avg.toFixed(2)) : NaN,
+        lastSeen,
+        isConnected,
       };
     });
 
-    if (sortBy === "asc") return [...items].sort((a, b) => a.avgTemp - b.avgTemp);
-    if (sortBy === "desc") return [...items].sort((a, b) => b.avgTemp - a.avgTemp);
-    return items;
-  }, [sensors, historyData, sortBy]);
+    // ordenar
+    const ordered =
+      sortBy === "asc"
+        ? [...rows].sort((a, b) => (a.avgTemp - b.avgTemp))
+        : sortBy === "desc"
+        ? [...rows].sort((a, b) => (b.avgTemp - a.avgTemp))
+        : rows;
 
-  const hasData = avgData.length > 0;
+    // filtrar si se requiere ocultar offline
+    return hideOffline ? ordered.filter((r) => r.isConnected) : ordered;
+  }, [sensors, historyData, sortBy, liveWindowMin, hideOffline]);
 
-  // Exportar PNG: serializa el <svg> dentro del contenedor y lo pinta en canvas
+  const hasData = enriched.length > 0;
+
+  // ====== Última actualización global ======
+  const globalLast = useMemo(() => {
+    if (!enriched.length) return null as Date | null;
+    return enriched.reduce<Date | null>((acc, r) => {
+      if (!r.lastSeen) return acc;
+      if (!acc) return r.lastSeen;
+      return r.lastSeen.getTime() > acc.getTime() ? r.lastSeen : acc;
+    }, null);
+  }, [enriched]);
+
+  // ====== Promedio global (opcionalmente excluye offline) ======
+  const globalAvg = useMemo(() => {
+    const base = excludeOfflineFromGlobalAvg ? enriched.filter((r) => r.isConnected) : enriched;
+    const temps = base.map((r) => r.avgTemp).filter((n) => Number.isFinite(n));
+    const avg = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : NaN;
+    return Number.isFinite(avg) ? avg : NaN;
+  }, [enriched, excludeOfflineFromGlobalAvg]);
+
+  // ====== Exportar PNG (@2x) ======
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const handleExport = async () => {
+  const handleExport = useCallback(async () => {
     const container = containerRef.current;
     if (!container) return;
     const svg = container.querySelector("svg");
@@ -111,20 +230,19 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
     const url = URL.createObjectURL(blob);
 
     const img = new Image();
-    // hace que el load de SVG respete estilos embebidos
     img.crossOrigin = "anonymous";
     await new Promise<void>((res, rej) => {
       img.onload = () => res();
-      img.onerror = () => rej();
+      img.onerror = () => rej(new Error("No se pudo cargar el SVG"));
       img.src = url;
     });
 
     const bbox = svg.getBoundingClientRect();
-    const w = Math.max(800, Math.round(bbox.width));
-    const h = Math.max(400, Math.round(bbox.height));
+    const w = Math.max(900, Math.round(bbox.width));
+    const h = Math.max(420, Math.round(bbox.height));
 
     const canvas = document.createElement("canvas");
-    canvas.width = w * 2; // @2x para nitidez
+    canvas.width = w * 2;
     canvas.height = h * 2;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -137,18 +255,15 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
       if (!png) return;
       const link = document.createElement("a");
       link.href = URL.createObjectURL(png);
-      link.download = `temp-effectiveness-${new Date()
-        .toISOString()
-        .slice(0, 19)
-        .replace(/[:T]/g, "-")}.png`;
+      link.download = `temperature-effectiveness-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
       link.click();
       URL.revokeObjectURL(url);
     }, "image/png");
-  };
+  }, []);
 
-  // Gradiente por barra (usando defs por índice)
-  const gradients = avgData.map((d, i) => {
-    const base = colorFor(d.avgTemp, minLimit, maxLimit);
+  // ====== Gradientes / patrón offline ======
+  const gradients = enriched.map((d, i) => {
+    const base = Number.isFinite(d.avgTemp) ? colorFor(d.avgTemp, minLimit, maxLimit) : "#9CA3AF";
     return {
       id: `grad-te-${i}`,
       stops: [
@@ -158,35 +273,71 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
     };
   });
 
+  // ====== Tooltip enriquecido ======
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null;
+    const row = payload[0]?.payload ?? {};
+    const v = Number(payload[0]?.value ?? NaN);
+    const tone =
+      v < minLimit - 3 || v > maxLimit + 3
+        ? "text-red-600"
+        : v < minLimit || v > maxLimit
+        ? "text-yellow-600"
+        : "text-green-600";
+
+    return (
+      <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700 max-w-[320px]">
+        <p className="font-semibold text-gray-900 mb-1 truncate" title={label}>
+          {label}
+        </p>
+        <p>
+          Promedio: <span className={`font-bold ${tone}`}>{Number.isFinite(v) ? v.toFixed(1) : "—"}°C</span>
+        </p>
+        <p>
+          Estado:{" "}
+          {row.isConnected ? (
+            <span className="text-green-600 font-medium">Conectado</span>
+          ) : (
+            <span className="text-red-600 font-medium">Desconectado</span>
+          )}
+        </p>
+        <p>
+          Última actualización: <span className="font-medium">{fmtAbs(row.lastSeen)}</span>
+          {row.lastSeen && <span className="text-gray-500"> {" ("}{fmtRel(row.lastSeen)}{")"}</span>}
+        </p>
+      </div>
+    );
+  };
+
+  // ====== Render ======
   return (
     <div
       className={`bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-5 ${className}`}
       ref={containerRef}
     >
-      {/* Header con acciones */}
+      {/* Header con acciones y meta-info */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="text-sm text-gray-600">
-          Rango ideal: <span className="font-semibold text-gray-800">{minLimit}°C</span> a{" "}
+          Rango ideal:{" "}
+          <span className="font-semibold text-gray-800">{minLimit}°C</span> a{" "}
           <span className="font-semibold text-gray-800">{maxLimit}°C</span>
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-gray-500 hidden sm:inline">Orden:</span>
-          <div className="flex items-center gap-1">
-            {(["none", "asc", "desc"] as SortBy[]).map((s) => (
-              <span
-                key={s}
-                className={`px-2 py-1 rounded-md text-xs border ${
-                  sortBy === s
-                    ? "bg-gray-900 text-white border-gray-900"
-                    : "bg-gray-100 text-gray-600 border-gray-200"
-                }`}
-                title="El orden se controla por prop 'sortBy'"
-              >
-                {s === "none" ? "Natural" : s === "asc" ? "Asc" : "Desc"}
-              </span>
-            ))}
-          </div>
+        <div className="ml-auto flex items-center gap-3">
+          {Number.isFinite(globalAvg) && (
+            <span className="text-xs sm:text-sm text-gray-600 inline-flex items-center gap-1">
+              <span className="inline-block w-4 border-t-2 border-dashed border-blue-500" />
+              Promedio global: <b className="text-blue-600">{globalAvg.toFixed(1)}°C</b>
+              {excludeOfflineFromGlobalAvg ? <i className="text-gray-400 ml-1">(sin OFF)</i> : null}
+            </span>
+          )}
+          {globalLast && (
+            <span className="text-xs sm:text-sm text-gray-500 inline-flex items-center gap-1">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              Últ. act.: <b className="ml-1">{fmtAbs(globalLast)}</b>
+              <span className="ml-1">({fmtRel(globalLast)})</span>
+            </span>
+          )}
 
           <button
             onClick={handleExport}
@@ -207,10 +358,11 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
         ) : hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
-              data={avgData}
-              margin={{ top: 12, right: 16, left: 8, bottom: isNarrow ? 40 : 20 }}
+              data={enriched}
+              margin={{ top: 10, right: 16, left: 8, bottom: isNarrow ? 52 : 32 }}
+              barGap={8}
             >
-              {/* Defs de gradiente por barra */}
+              {/* Defs: gradientes por barra + patrón offline */}
               <defs>
                 {gradients.map((g) => (
                   <linearGradient key={g.id} id={g.id} x1="0" y1="0" x2="0" y2="1">
@@ -219,21 +371,22 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
                     ))}
                   </linearGradient>
                 ))}
+                {/* Patrón gris diagonal para OFFLINE */}
+                <pattern id="diag-offline" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+                  <rect width="6" height="6" fill="#E5E7EB" />
+                  <line x1="0" y1="0" x2="0" y2="6" stroke="#9CA3AF" strokeWidth="2" />
+                </pattern>
               </defs>
 
-              {/* Bandas de rango ideal */}
-              <ReferenceArea y1={minLimit} y2={maxLimit} fill="#22C55E" fillOpacity={0.10} />
+              {/* Banda de rango ideal */}
+              <ReferenceArea y1={minLimit} y2={maxLimit} fill="#22C55E" fillOpacity={0.12} />
 
               <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
               <XAxis
                 dataKey="zone"
                 interval={0}
-                height={isNarrow ? 40 : 24}
-                tick={{
-                  fontSize: 12,
-                  fill: "#6b7280",
-                  fontFamily: "Inter, system-ui, sans-serif",
-                }}
+                height={isNarrow ? 52 : 32}
+                tick={{ fontSize: 12, fill: "#6b7280", fontFamily: "Inter, system-ui, sans-serif" }}
                 angle={isNarrow ? -22 : 0}
                 textAnchor={isNarrow ? "end" : "middle"}
                 tickFormatter={(v: string) => ellipsize(v, isNarrow ? 14 : 20)}
@@ -247,40 +400,32 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
                 tickFormatter={(v) => `${v}°C`}
                 axisLine={false}
               />
-              <Tooltip
-                cursor={{ fill: "rgba(0,0,0,0.04)" }}
-                content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null;
-                  const v = Number(payload[0].value ?? 0);
-                  const tone =
-                    v < minLimit - 3 || v > maxLimit + 3
-                      ? "text-red-600"
-                      : v < minLimit || v > maxLimit
-                      ? "text-yellow-600"
-                      : "text-green-600";
-                  return (
-                    <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700">
-                      <p className="font-semibold text-gray-900 mb-1 truncate">
-                        {label}
-                      </p>
-                      <p>
-                        Promedio:{" "}
-                        <span className={`font-bold ${tone}`}>{v.toFixed(1)}°C</span>
-                      </p>
-                    </div>
-                  );
-                }}
-              />
+
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+
+              {/* Línea de promedio global */}
+              {Number.isFinite(globalAvg) && (
+                <ReferenceLine
+                  y={globalAvg}
+                  stroke="#3B82F6"
+                  strokeDasharray="4 3"
+                  label={{
+                    value: `Promedio ${globalAvg.toFixed(1)}°C`,
+                    position: "right",
+                    fill: "#3B82F6",
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                />
+              )}
+
               <Legend
                 verticalAlign="bottom"
                 wrapperStyle={{ paddingTop: 8 }}
                 iconType="circle"
-                formatter={(value) => (
-                  <span className="text-gray-700 text-sm">{value}</span>
-                )}
+                formatter={(value) => <span className="text-gray-700 text-sm">{value}</span>}
               />
 
-              {/* Barras principales */}
               <Bar
                 dataKey="avgTemp"
                 name="Promedio de Temperatura"
@@ -293,30 +438,31 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
                 isAnimationActive
                 animationDuration={700}
               >
-                {/* Etiquetas encima */}
+                {/* Etiquetas: usar firma correcta (value, entry, index) */}
                 <LabelList
                   dataKey="avgTemp"
                   position="top"
-                  formatter={(v: any) => `${Number(v ?? 0).toFixed(1)}°`}
-                  style={{
-                    fontSize: 11,
-                    fill: "#374151",
-                    fontWeight: 500,
-                    fontFamily: "Inter, system-ui, sans-serif",
-                  }}
+                  // ⚠️ Hack de typing:
+                  formatter={
+                    ((value: any, entry: any) => {
+                      const num = Number(value ?? NaN);
+                      const base = Number.isFinite(num) ? `${num.toFixed(1)}°` : "—";
+                      return entry?.isConnected ? base : `${base} · OFF`;
+                    }) as unknown as (label: React.ReactNode) => React.ReactNode
+                  }
                 />
-                {/* Celdas con gradiente según estado */}
-                {avgData.map((_d, i) => {
-                  return (
-                    <Cell
-                      key={`cell-${i}`}
-                      fill={`url(#grad-te-${i})`}
-                      stroke="#1F2937"
-                      strokeWidth={0.4}
-                      cursor={onBarClick ? "pointer" : "default"}
-                    />
-                  );
-                })}
+
+
+                {/* Celdas: gradiente si online, patrón si offline */}
+                {enriched.map((row, i) => (
+                  <Cell
+                    key={`cell-${i}`}
+                    fill={row.isConnected ? `url(#grad-te-${i})` : "url(#diag-offline)"}
+                    stroke={row.isConnected ? "transparent" : "#9CA3AF"}
+                    strokeWidth={row.isConnected ? 0 : 1}
+                    cursor={onBarClick ? "pointer" : "default"}
+                  />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>

@@ -1,39 +1,44 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useContext } from "react";
+"use client";
+import React from "react";
 import ResponsiveTable from "../ui/ResponsiveTable";
-import { WeatherContext } from "../../context/WeatherContext";
-import type { ReportRow } from "../../utils/reportUtils";
+import type { ReportRow } from "../../pages/ReportPage";
+
+const fmtNum = (v: any, digits = 2) =>
+  v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toFixed(digits);
+
+/** Formatea cualquier timestamp del histórico a fecha legible local */
+const parseToDate = (rec: any): string => {
+  const ts = rec?.timestamp ?? rec?.created_at ?? rec?.time ?? rec?.date ?? rec?.updatedAt;
+  if (ts == null) return "—";
+
+  let ms = NaN;
+  if (typeof ts === "number") {
+    ms = ts < 9_999_999_999 ? ts * 1000 : ts;
+  } else if (typeof ts === "string") {
+    const s = ts.includes(" ") ? ts.replace(" ", "T") : ts;
+    ms = Date.parse(s);
+  } else {
+    ms = new Date(ts).getTime();
+  }
+
+  if (Number.isNaN(ms)) return "—";
+  return new Date(ms).toLocaleString("es-DO", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
 const ReportTable: React.FC<{ data: ReportRow[] }> = ({ data }) => {
-  const { historyData } = useContext(WeatherContext);
-
-  // función auxiliar para mostrar fecha legible
-  const parseTimestamp = (record: any): string => {
-    const ts =
-      record?.timestamp || record?.created_at || record?.time || record?.date;
-    if (!ts) return "—";
-    const date =
-      typeof ts === "number"
-        ? new Date(ts < 9999999999 ? ts * 1000 : ts)
-        : new Date(ts);
-    return !isNaN(date.getTime())
-      ? date.toLocaleString("es-DO", {
-          day: "2-digit",
-          month: "short",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "—";
-  };
-
-  // Si no hay data, dejamos que ResponsiveTable maneje el mensaje vacío
   return (
     <ResponsiveTable
       title="Promedios por Zona"
       data={data}
       expandableKey="Zona"
       emptyMessage="No hay datos disponibles para el rango seleccionado."
-      showExport={true}
+      showExport
       columns={[
         { key: "Zona", label: "Zona" },
         {
@@ -57,25 +62,16 @@ const ReportTable: React.FC<{ data: ReportRow[] }> = ({ data }) => {
           render: (v) => <span className="font-medium text-gray-600">{v}</span>,
         },
       ]}
-      expandedRender={(row) => {
-        const zoneHistory = Array.isArray(historyData[row.Zona])
-          ? historyData[row.Zona]
-          : [];
-
-        if (zoneHistory.length === 0)
-          return (
-            <div className="text-gray-500 text-sm">
-              No hay histórico disponible para esta zona.
-            </div>
-          );
+      expandedRender={(row: ReportRow) => {
+        const history = Array.isArray(row.__history) ? row.__history : [];
+        if (!history.length)
+          return <div className="text-gray-500 text-sm">No hay histórico disponible para esta zona.</div>;
 
         return (
           <div>
             <h4 className="font-semibold text-gray-800 mb-2">
               Histórico de {row.Zona}
-              <span className="text-xs text-gray-400 ml-2">
-                ({zoneHistory.length} registros)
-              </span>
+              <span className="text-xs text-gray-400 ml-2">({history.length} registros)</span>
             </h4>
 
             <div className="overflow-y-auto max-h-72 rounded-lg border border-gray-100">
@@ -88,21 +84,12 @@ const ReportTable: React.FC<{ data: ReportRow[] }> = ({ data }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {zoneHistory.map((m, idx) => (
-                    <tr
-                      key={idx}
-                      className="border-t border-gray-100 hover:bg-gray-50"
-                    >
-                      <td className="py-2 px-3 text-gray-700">
-                        {parseTimestamp(m)}
-                      </td>
-                      <td className="py-2 px-3 text-right text-blue-700">
-                        {Number(m.temperature)?.toFixed(2) ?? "—"}
-                      </td>
+                  {history.map((m: any, idx: number) => (
+                    <tr key={idx} className="border-top border-gray-100 hover:bg-gray-50">
+                      <td className="py-2 px-3 text-gray-700">{parseToDate(m)}</td>
+                      <td className="py-2 px-3 text-right text-blue-700">{fmtNum(m.temperature, 2)}</td>
                       <td className="py-2 px-3 text-right text-green-700">
-                        {Number(
-                          (m as any).humedity ?? (m as any).humidity
-                        )?.toFixed(1) ?? "—"}
+                        {fmtNum((m as any).humedity ?? (m as any).humidity ?? (m as any).hum, 1)}
                       </td>
                     </tr>
                   ))}
