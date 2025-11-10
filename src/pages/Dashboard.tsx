@@ -275,7 +275,7 @@ const Dashboard: React.FC = () => {
 
               <div className="bg-white border border-gray-200 rounded-2xl p-4">
                 <h3 className="text-sm font-semibold text-gray-800 mb-2">
-                  Salud en Vivo
+                  Sensores registrados
                 </h3>
                 {/* Ahora esta versión usa getSmartConnection + pickHistory */}
                 <SensorCards

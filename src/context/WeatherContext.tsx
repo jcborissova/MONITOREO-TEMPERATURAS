@@ -21,23 +21,18 @@ const toMs = (v: any): number => {
   return Number.isFinite(ms) ? ms : 0;
 };
 
-/** Devuelve el último timestamp conocido para un sensor (histórico -> lastPowerDate -> updatedAt -> timestamp) */
-const pickLatestTs = (room: any, history?: Measure[]): number => {
-  const hMax =
-    Array.isArray(history) && history.length
-      ? Math.max(
-          ...history
-            .map((h) => toMs((h as any).date ?? (h as any).timestamp ?? (h as any).created_at))
-            .filter((n) => n > 0)
-        )
-      : 0;
-
-  const lp = toMs(room?.lastPowerDate);
-  const up = toMs(room?.updatedAt ?? room?.timestamp);
-  return Math.max(hMax || 0, lp || 0, up || 0);
+/** SOLO histórico: si no hay histórico, 0 (no usamos lastPowerDate/updatedAt para "última actualización") */
+const latestHistoryTs = (history?: Measure[]): number => {
+  if (!Array.isArray(history) || history.length === 0) return 0;
+  let max = 0;
+  for (const h of history) {
+    const ms = toMs((h as any).date ?? (h as any).timestamp ?? (h as any).created_at ?? (h as any).time);
+    if (ms > max) max = ms;
+  }
+  return max;
 };
 
-/** Lógica de conexión basada en status + frescura del último timestamp */
+/** Conexión basada en status + frescura de histórico */
 const computeConnection = (
   latestMs: number,
   status?: string,
@@ -98,34 +93,36 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  /** Trae sensores y retorna la lista enriquecida */
+  /** Trae sensores y retorna la lista enriquecida (última actualización = último registro del histórico) */
   const fetchSensors = async (): Promise<Room[]> => {
     setIsLoading(true);
     try {
       const list = await sensorsService.getAllSensors();
 
-      // Cargar históricos en paralelo primero (para poder decidir actividad con ese dato)
+      // Histórico en paralelo (clave: devEUI || name)
       const historyEntries = await Promise.all(
         list.map(async (s: any) => {
+          const key = s.devEUI ?? s.name;
           try {
-            const hist = await sensorsService.getSensorHistory(s.devEUI ?? "");
-            return [s.devEUI ?? s.name, Array.isArray(hist) ? hist : []] as const;
+            const hist = await sensorsService.getSensorHistory(key);
+            return [key, Array.isArray(hist) ? hist : []] as const;
           } catch {
-            return [s.devEUI ?? s.name, [] as Measure[]] as const;
+            return [key, [] as Measure[]] as const;
           }
         })
       );
       const historyMap = Object.fromEntries(historyEntries);
       setHistoryData(historyMap);
 
-      // Enriquecer sensores con "actividad" usando histórico + status
+      // Conexión/última actualización calculadas SÓLO con histórico
       const enriched: Room[] = list.map((s: any) => {
-        const latest = pickLatestTs(s, historyMap[s.devEUI ?? s.name]);
-        const { isConnected, last, diffMin } = computeConnection(latest, s.status);
+        const key = s.devEUI ?? s.name;
+        const latestMs = latestHistoryTs(historyMap[key]);
+        const { isConnected, last, diffMin } = computeConnection(latestMs, s.status);
         return {
           ...s,
           isConnected,
-          lastSeen: last ? last.toISOString() : undefined,
+          lastSeen: last ? last.toISOString() : undefined, // “Última actualización” (histórico)
           diffMin,
         } as Room;
       });
