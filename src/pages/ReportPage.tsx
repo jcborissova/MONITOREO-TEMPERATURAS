@@ -23,7 +23,7 @@ import type { Measure } from "../types/types";
    Tipos
 ========================= */
 export type ReportRow = {
-  Zona: string;                 // Nombre amigable de la zona
+  Zona: string;
   "Promedio Temperatura (°C)": string | number;
   "Promedio Humedad (%)": string | number;
   "Temp Mín (°C)": string | number;
@@ -32,7 +32,7 @@ export type ReportRow = {
   "Hum. Máx (%)": string | number;
   "Último Registro": string;
   "Total Registros": number;
-  __zoneCode?: string;          // devEUI / key
+  __zoneCode?: string;
   __history?: Measure[];
 };
 
@@ -87,14 +87,14 @@ const parseTs = (rec: any): number => {
    Página
 ========================= */
 const ReportPage: React.FC = () => {
-  // ⬇️ Trae sensors para resolver el nombre desde el contexto
+  // Trae sensors para resolver el nombre desde el contexto
   const { historyData, sensors, refreshData } = useContext(WeatherContext);
 
   // Mapa devEUI|name -> name visible
   const nameByKey = useMemo(() => {
     const map: Record<string, string> = {};
     for (const s of sensors ?? []) {
-      const key = s.devEUI ?? s.name; // misma clave que usa historyData
+      const key = s.devEUI ?? s.name;
       if (key) map[key] = s.name;
     }
     return map;
@@ -112,7 +112,6 @@ const ReportPage: React.FC = () => {
   const [q, setQ] = useState("");
   const [hideEmpty, setHideEmpty] = useState(true);
 
-  // ✅ Declarar SOLO UNA VEZ
   const lastRefreshRef = useRef<Date | null>(null);
 
   /* ------- Control de fechas ------- */
@@ -165,7 +164,6 @@ const ReportPage: React.FC = () => {
           })
         : measures;
 
-      // 🔑 Nombre correcto tomado de sensors por la clave del histórico (devEUI || name)
       const resolvedName =
         nameByKey[zoneKey] ??
         ((measures[0] as any)?.roomName ??
