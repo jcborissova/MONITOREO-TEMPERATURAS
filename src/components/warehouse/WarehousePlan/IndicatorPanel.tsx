@@ -27,6 +27,8 @@ interface Props {
   isFloating?: boolean;
   /** minutos para considerar “conectado” (solo para UI; la conexión real usa getSmartConnection) */
   freshnessMinutes?: number;
+  /** Máx. filas visibles en desktop antes de forzar scroll (por defecto 3) */
+  desktopMaxRows?: number;
 }
 type SortKey = "estado" | "nombre" | "temp";
 
@@ -70,7 +72,7 @@ const normalizeDateISO = (value: any): string => {
 };
 
 /* =========================
-   Resolución de histórico (coincide con el dashboard)
+   Resolución de histórico
 ========================= */
 type HistoryDict = Record<string, any[]>;
 
@@ -91,10 +93,8 @@ const pickHistory = (
     .map((x) => (x == null ? "" : String(x)))
     .filter(Boolean);
 
-  // 1) exacto
   for (const k of cands) if (historyData[k]) return historyData[k];
 
-  // 2) case-insensitive
   for (const k of cands) {
     const real = looseIndex.get(k.toLowerCase());
     if (real && historyData[real]) return historyData[real];
@@ -123,6 +123,7 @@ const buildRoomHistory = (room: Room, historyData: HistoryDict, looseIndex: Map<
 const IndicatorPanel: React.FC<Props> = ({
   rooms,
   isFloating = true,
+  desktopMaxRows = 3,
 }) => {
   const { historyData } = useContext(WeatherContext);
   const { getSmartConnection } = useContext(SensorsContext);
@@ -150,14 +151,13 @@ const IndicatorPanel: React.FC<Props> = ({
   );
 
   /* =========================
-     Enriquecimiento de filas (USANDO CONTEXT)
+     Enriquecimiento de filas
   ========================= */
   const enriched = useMemo(() => {
     const list = (rooms ?? []).map((r, idx) => {
       const hist = pickHistory(r as any, (historyData ?? {}) as HistoryDict, looseIndex);
       const conn = getSmartConnection(r, hist as any[]);
 
-      // último timestamp mostrado/tooltip
       const lastRaw =
         hist.length
           ? hist[hist.length - 1]?.timestamp ??
@@ -217,7 +217,6 @@ const IndicatorPanel: React.FC<Props> = ({
             Number(b.temperature ?? -Infinity) - Number(a.temperature ?? -Infinity)
           );
         case "estado": {
-          // conectados primero (si empatan, el más reciente primero)
           const sa = (a._connected ? 1 : 0) * 100 + (a._updatedMs || 0);
           const sb = (b._connected ? 1 : 0) * 100 + (b._updatedMs || 0);
           return sb - sa;
@@ -229,6 +228,8 @@ const IndicatorPanel: React.FC<Props> = ({
 
     return rows;
   }, [enriched, query, sortBy]);
+
+  const itemsCount = filtered.length;
 
   /* =========================
      Drag básico
@@ -312,18 +313,21 @@ const IndicatorPanel: React.FC<Props> = ({
   /* =========================
      Render
   ========================= */
+  // En desktop, si hay más de N elementos y estamos en la vista de lista (no detalle),
+  // capamos la altura de la zona de contenido para que muestre ~3 tarjetas y haga scroll.
+  const capDesktopList =
+    !isMinimized && !selectedRoom && itemsCount > desktopMaxRows;
+
   return (
     <div
       ref={panelRef}
       className={[
         "z-30",
-        // posición
         isFloating ? "absolute top-4 left-4 right-4 sm:right-auto" : "relative mt-2",
-        // layout + alturas: el truco del scroll está aquí
         "w-full sm:w-[92vw] md:w-[520px] max-w-md",
         "bg-white shadow-xl rounded-lg border border-gray-200 overflow-hidden transition-all",
-        "flex flex-col",                   // contenedor flex vertical
-        "max-h-[80vh]",                   // altura máxima del panel
+        "flex flex-col",
+        "max-h-[80vh]",
       ].join(" ")}
       style={{ touchAction: "none", cursor: isFloating ? "grab" : "auto" }}
     >
@@ -387,9 +391,17 @@ const IndicatorPanel: React.FC<Props> = ({
         </div>
       )}
 
-      {/* CONTENIDO (sí hace scroll) */}
+      {/* CONTENIDO */}
       {!isMinimized && (
-        <div className="p-3 sm:p-4 flex-1 min-h-0 overflow-y-auto">
+        <div
+          className={[
+            "p-3 sm:p-4",
+            // En mobile siempre usa el layout flexible con scroll cuando sea necesario
+            "flex-1 min-h-0 overflow-y-auto",
+            // En desktop, si hay más de N filas y estamos en LISTA, cazar la altura (~3 filas) y forzar scroll
+            capDesktopList ? "sm:flex-none sm:overflow-y-auto sm:max-h-[360px] md:max-h-[380px] lg:max-h-[400px]" : "",
+          ].join(" ")}
+        >
           {selectedRoom ? (
             <RoomIndicator
               room={{
