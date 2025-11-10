@@ -44,7 +44,7 @@ const MainMap: React.FC<Props> = ({ mapId }) => {
     () =>
       hasLoc
         ? { lat: locations[0].position[0], lng: locations[0].position[1] }
-        : { lat: 18.4861, lng: -69.9312 }, // Santo Domingo
+        : { lat: 18.4861, lng: -69.9312 },
     [hasLoc]
   );
 
