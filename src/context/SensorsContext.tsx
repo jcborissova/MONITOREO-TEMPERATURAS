@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 // src/context/SensorsContext.tsx
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { createContext, useEffect, useRef, useState, type ReactNode } from "react";

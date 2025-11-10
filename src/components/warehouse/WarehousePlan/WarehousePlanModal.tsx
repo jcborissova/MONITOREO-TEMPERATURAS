@@ -44,7 +44,6 @@ const WarehousePlanModal: React.FC = () => {
     [closeWarehousePlan]
   );
 
-  // ⚠️ El return condicional va al final, después de declarar los hooks
   if (!isModalOpen || !selectedWarehouse) return null;
 
   return (
@@ -95,8 +94,12 @@ const WarehousePlanModal: React.FC = () => {
           <div className="flex-grow bg-gray-50 relative overflow-hidden">
             <div className="w-full h-full overflow-auto p-2 sm:p-4 space-y-4">
               <div className="relative w-full h-[320px] sm:h-[68vh] md:h-[70vh] lg:h-[72vh]">
-                <MapOverlay rooms={climateData?.rooms || []} />
-              </div>
+                <MapOverlay
+                  rooms={climateData?.rooms || []}
+                  activeBoxPct={{ x: 5, y: 6, width: 90, height: 87 }} // ajusta a tu SVG
+                  debugActiveBox={false}
+                />
+                              </div>
 
               {/* Móvil: panel embebido */}
               <div className="sm:hidden">

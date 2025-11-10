@@ -122,7 +122,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
         return {
           ...s,
           isConnected,
-          lastSeen: last ? last.toISOString() : undefined, // “Última actualización” (histórico)
+          lastSeen: last ? last.toISOString() : undefined,
           diffMin,
         } as Room;
       });
