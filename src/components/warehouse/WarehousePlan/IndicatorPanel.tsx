@@ -23,14 +23,14 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
   const [query, setQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("estado");
 
-  // recordar posición (por ejemplo al cerrar/abrir)
+  // drag state
   const panelRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const pos = useRef({ x: 0, y: 0, left: 16, top: 16 });
   const savedPos = useRef<{ left: number; top: number } | null>(null);
 
   /* =========================
-     Helpers de tiempo/conectividad
+     Tiempo / conectividad
   ========================= */
   const toMs = (v: any): number => {
     if (!v) return 0;
@@ -44,11 +44,13 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
     return Number.isFinite(ms) ? ms : 0;
   };
 
-  const isConnectedWithin = (updatedMs: number, minutes = freshnessMinutes) =>
-    updatedMs && Date.now() - updatedMs <= minutes * 60 * 1000;
+  const isConnectedWithin = (updatedMs: number, minutes = freshnessMinutes) => {
+    if (!updatedMs) return false;
+    const GRACE_MS = 60 * 1000; // 1 min de gracia
+    return Date.now() - updatedMs <= minutes * 60 * 1000 + GRACE_MS;
+  };
 
-  const formatAbsDate = (ms: number) =>
-    ms ? new Date(ms).toLocaleString("es-DO") : "—";
+  const formatAbsDate = (ms: number) => (ms ? new Date(ms).toLocaleString("es-DO") : "—");
 
   const timeAgo = (ms: number) => {
     if (!ms) return "—";
@@ -61,17 +63,14 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
     return r ? `${h}h ${r}m` : `${h}h`;
   };
 
-  // actualiza textos relativos cada minuto
+  // refresco liviano de labels cada minuto
   useEffect(() => {
-    const id = setInterval(() => {
-      // trigger re-render leve
-      setQuery((q) => q);
-    }, 60_000);
+    const id = setInterval(() => setQuery((q) => q), 60_000);
     return () => clearInterval(id);
   }, []);
 
   /* =========================
-     Normalización de histórico
+     Histórico (normalización)
   ========================= */
   const normalizeDate = (value: any): string => {
     if (!value) return new Date().toISOString();
@@ -109,12 +108,38 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
     [historyData]
   );
 
+  /** último timestamp del histórico para un room */
+  const latestHistoryMs = useCallback(
+    (room: Room): number => {
+      const keyByEui = (room as any).devEUI ?? null;
+      const keyByName = room.name ?? (room as any).deviceName ?? null;
+      const list: any[] =
+        (keyByEui && historyData?.[keyByEui]) ||
+        (keyByName && historyData?.[keyByName]) ||
+        [];
+      if (!Array.isArray(list) || list.length === 0) return 0;
+
+      let maxMs = 0;
+      for (const m of list) {
+        const ms = toMs(m.timestamp || m.created_at || m.time || m.date || m.updatedAt);
+        if (ms > maxMs) maxMs = ms;
+      }
+      return maxMs;
+    },
+    [historyData]
+  );
+
   /* =========================
-     Enriquecer filas
+     Enriquecimiento de filas
   ========================= */
   const enriched = useMemo(() => {
     return (rooms ?? []).map((r, idx) => {
-      const updatedMs = toMs((r as any).updatedAt ?? (r as any).lastSeen ?? (r as any).timestamp);
+      // 1) directo
+      const directMs = toMs((r as any).updatedAt ?? (r as any).lastSeen ?? (r as any).timestamp);
+      // 2) del histórico
+      const histMs = latestHistoryMs(r);
+      // 3) mejor de ambos
+      const updatedMs = Math.max(directMs, histMs);
       const connected = isConnectedWithin(updatedMs, freshnessMinutes);
 
       const temperature =
@@ -139,8 +164,12 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
         productivity: typeof productivity === "number" ? Math.round(productivity) : null,
       };
     });
-  }, [rooms, freshnessMinutes]);
+    // Recalcular cuando llegue nuevo histórico
+  }, [rooms, freshnessMinutes, latestHistoryMs]);
 
+  /* =========================
+     Filtro + orden
+  ========================= */
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let rows = !q
@@ -158,10 +187,9 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
         case "temp":
           return (Number(b.temperature ?? -Infinity) - Number(a.temperature ?? -Infinity));
         case "estado": {
-          // conectados primero, luego por alert/warning/normal
+          // conectados primero, luego por criticidad
           const score = (r: any) =>
-            (r._connected ? 100 : 0) +
-            (r.alert ? 10 : r.warning ? 5 : 0);
+            (r._connected ? 100 : 0) + (r.alert ? 10 : r.warning ? 5 : 0);
           return score(b) - score(a);
         }
       }
@@ -171,10 +199,9 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
   }, [enriched, query, sortBy]);
 
   /* =========================
-     Drag: mouse + touch, con límites y guardado
+     Drag básico
   ========================= */
   useEffect(() => {
-    // restaurar posición si hay
     if (panelRef.current && savedPos.current) {
       panelRef.current.style.left = `${savedPos.current.left}px`;
       panelRef.current.style.top = `${savedPos.current.top}px`;
@@ -261,9 +288,8 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
   return (
     <div
       ref={panelRef}
-      className={`z-30 ${
-        isFloating ? "absolute top-4 left-4 right-4 sm:right-auto" : "relative mt-2"
-      } w-full sm:w-[92vw] md:w-[520px] max-w-md bg-white shadow-xl rounded-lg border border-gray-200 overflow-hidden transition-all`}
+      className={`z-30 ${isFloating ? "absolute top-4 left-4 right-4 sm:right-auto" : "relative mt-2"
+        } w-full sm:w-[92vw] md:w-[520px] max-w-md bg-white shadow-xl rounded-lg border border-gray-200 overflow-hidden transition-all`}
       style={{ touchAction: "none", cursor: isFloating ? "grab" : "auto" }}
     >
       {/* HEADER */}
@@ -298,7 +324,7 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
         </button>
       </div>
 
-      {/* CONTROLES (solo en lista) */}
+      {/* CONTROLES */}
       {!selectedRoom && !isMinimized && (
         <div className="px-3 sm:px-4 pt-2 flex items-center gap-2">
           <div className="relative flex-1">

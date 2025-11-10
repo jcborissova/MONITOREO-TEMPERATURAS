@@ -4,9 +4,54 @@
 import React, { createContext, useState, useEffect, type ReactNode } from "react";
 import { type ClimateData, type Room, type Measure } from "../types/types";
 import { locations } from "../data/Locations";
-import apiService from "../services/api.service";
-import { API_ENDPOINTS } from "../config/api.config";
-import { sensorsLayout } from "../data/SensorsLayout";
+import { sensorsService } from "../services/sensors.service";
+
+const CONNECTION_THRESHOLD_MIN = 30;
+
+/* ===== Helpers de tiempo ===== */
+const toMs = (v: any): number => {
+  if (!v) return 0;
+  const d =
+    typeof v === "number"
+      ? new Date(v < 9_999_999_999 ? v * 1000 : v)
+      : typeof v === "string"
+      ? new Date(v.includes(" ") ? v.replace(" ", "T") : v)
+      : new Date(v);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+/** Devuelve el último timestamp conocido para un sensor (histórico -> lastPowerDate -> updatedAt -> timestamp) */
+const pickLatestTs = (room: any, history?: Measure[]): number => {
+  const hMax =
+    Array.isArray(history) && history.length
+      ? Math.max(
+          ...history
+            .map((h) => toMs((h as any).date ?? (h as any).timestamp ?? (h as any).created_at))
+            .filter((n) => n > 0)
+        )
+      : 0;
+
+  const lp = toMs(room?.lastPowerDate);
+  const up = toMs(room?.updatedAt ?? room?.timestamp);
+  return Math.max(hMax || 0, lp || 0, up || 0);
+};
+
+/** Lógica de conexión basada en status + frescura del último timestamp */
+const computeConnection = (
+  latestMs: number,
+  status?: string,
+  thresholdMin = CONNECTION_THRESHOLD_MIN
+) => {
+  const apiSaysConnected = (status ?? "").toLowerCase() === "conectado";
+  const recentByTime = latestMs ? Date.now() - latestMs <= thresholdMin * 60_000 : false;
+  const isConnected = apiSaysConnected || recentByTime;
+  return {
+    isConnected,
+    last: latestMs ? new Date(latestMs) : null,
+    diffMin: latestMs ? (Date.now() - latestMs) / 60_000 : Infinity,
+  };
+};
 
 interface WarehouseData {
   name: string;
@@ -26,9 +71,9 @@ interface WeatherContextProps {
   selectedWarehouse: string | null;
   isModalOpen: boolean;
   isLoading: boolean;
-  openWarehousePlan: (name: string) => void;
+  openWarehousePlan: (name: string) => Promise<void>;
   closeWarehousePlan: () => void;
-  refreshData: () => void;
+  refreshData: () => Promise<void>;
 }
 
 export const WeatherContext = createContext<WeatherContextProps>({
@@ -39,9 +84,9 @@ export const WeatherContext = createContext<WeatherContextProps>({
   selectedWarehouse: null,
   isModalOpen: false,
   isLoading: false,
-  openWarehousePlan: () => {},
+  openWarehousePlan: async () => {},
   closeWarehousePlan: () => {},
-  refreshData: () => {},
+  refreshData: async () => {},
 });
 
 export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -53,108 +98,60 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Genera una posición pseudoestable para cada sensor (para visualización en plano)
-  const getStablePosition = (name: string) => {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const normalized = (n: number) => 10 + (Math.abs(n) % 75);
-    const top = `${normalized(hash) + 5 * ((hash % 3) - 1)}%`;
-    const left = `${normalized(hash * 13) + 5 * ((hash % 5) - 2)}%`;
-    return { top, left };
-  };
-
-  // Obtiene sensores y su historial de mediciones
-  const fetchSensors = async () => {
+  /** Trae sensores y retorna la lista enriquecida */
+  const fetchSensors = async (): Promise<Room[]> => {
     setIsLoading(true);
     try {
-      const response = await apiService.get(API_ENDPOINTS.SENSORS);
-      const payload = response as any;
+      const list = await sensorsService.getAllSensors();
 
-      const sensorList: Room[] = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload.data)
-        ? payload.data
-        : [];
+      // Cargar históricos en paralelo primero (para poder decidir actividad con ese dato)
+      const historyEntries = await Promise.all(
+        list.map(async (s: any) => {
+          try {
+            const hist = await sensorsService.getSensorHistory(s.devEUI ?? "");
+            return [s.devEUI ?? s.name, Array.isArray(hist) ? hist : []] as const;
+          } catch {
+            return [s.devEUI ?? s.name, [] as Measure[]] as const;
+          }
+        })
+      );
+      const historyMap = Object.fromEntries(historyEntries);
+      setHistoryData(historyMap);
 
-      const baseLoc = locations[0];
-
-      const enriched = sensorList.map((s, idx) => {
-        const layout =
-          sensorsLayout[s.deviceName ?? s.name] ??
-          getStablePosition(s.deviceName ?? s.name ?? `Sensor-${idx}`);
-        const updatedAt =
-          s.updatedAt ?? s.lastPowerDate ?? s.timestamp ?? new Date().toISOString();
-
-        const productivity =
-          s.productivity ??
-          (s.temperature && s.humedity
-            ? Math.max(
-                0,
-                100 -
-                  Math.abs(s.temperature - 25) * 2 -
-                  Math.abs(s.humedity - 60) * 0.5
-              )
-            : Math.floor(Math.random() * 80 + 10));
-
+      // Enriquecer sensores con "actividad" usando histórico + status
+      const enriched: Room[] = list.map((s: any) => {
+        const latest = pickLatestTs(s, historyMap[s.devEUI ?? s.name]);
+        const { isConnected, last, diffMin } = computeConnection(latest, s.status);
         return {
           ...s,
-          name: s.deviceName ?? s.name ?? `Sensor-${idx + 1}`,
-          updatedAt,
-          top: layout.top,
-          left: layout.left,
-          lat: baseLoc.position[0],
-          lng: baseLoc.position[1],
-          address: baseLoc.address,
-          phone: baseLoc.phone,
-          hours: baseLoc.hours,
-          imageUrl: baseLoc.imageUrl,
-          productivity,
-        };
+          isConnected,
+          lastSeen: last ? last.toISOString() : undefined,
+          diffMin,
+        } as Room;
       });
 
       setSensors(enriched);
-
-      // 📈 Cargar históricos de cada sensor
-      const histories: Record<string, Measure[]> = {};
-      for (const sensor of enriched) {
-        const key = sensor.devEUI ?? sensor.name;
-        try {
-          const res: any = await apiService.get(
-            API_ENDPOINTS.SENSOR_HISTORY(sensor.devEUI ?? "")
-          );
-          const sensorHistory: Measure[] = Array.isArray(res)
-            ? res
-            : res.data ?? [];
-          histories[key] = sensorHistory;
-        } catch {
-          histories[key] = [];
-        }
-      }
-      setHistoryData(histories);
+      return enriched;
     } catch (err) {
       console.error("Error cargando sensores:", err);
       setSensors([]);
+      setHistoryData({});
+      return [];
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    // Carga inicial de sensores
-    fetchSensors();
+    void fetchSensors();
   }, []);
 
-  // Refresca datos manualmente (por ejemplo, botón “Actualizar”)
-  const refreshData = async () => {
-    await fetchSensors();
-  };
-
-  // Abre el plano interactivo del almacén
-  const openWarehousePlan = (name: string) => {
+  /** Abre modal garantizando rooms frescos */
+  const openWarehousePlan = async (name: string) => {
     const loc = locations.find((l) => l.name === name);
     if (!loc) return;
+
+    const current = sensors.length > 0 ? sensors : await fetchSensors();
 
     setWarehouse({
       name: loc.name,
@@ -167,18 +164,31 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     });
 
     setSelectedWarehouse(name);
+    setClimateData({ rooms: current });
     setIsModalOpen(true);
-    setClimateData({ rooms: sensors });
   };
 
-  // Cierra el modal y limpia estado
   const closeWarehousePlan = () => {
     setSelectedWarehouse(null);
     setIsModalOpen(false);
     setClimateData(null);
   };
 
-  // Contexto global expuesto
+  const refreshData = async () => {
+    const fresh = await fetchSensors();
+    if (isModalOpen) setClimateData({ rooms: fresh });
+  };
+
+  /** Listener del CustomEvent */
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const detail = (e as CustomEvent<{ name: string }>).detail;
+      if (detail?.name) await openWarehousePlan(detail.name);
+    };
+    window.addEventListener("open-warehouse-plan", handler as EventListener);
+    return () => window.removeEventListener("open-warehouse-plan", handler as EventListener);
+  }, [sensors, isModalOpen]);
+
   return (
     <WeatherContext.Provider
       value={{

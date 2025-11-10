@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useMemo, useEffect, useState } from "react";
+import React, { useMemo, useEffect, useState, useContext, useCallback } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -17,6 +17,7 @@ import {
   ChevronDownIcon,
 } from "@heroicons/react/24/outline";
 import type { Room } from "../../../types/types";
+import { WeatherContext } from "../../../context/WeatherContext";
 
 /* =========================
    Helpers
@@ -46,8 +47,11 @@ const timeAgo = (ms: number) => {
   return `hace ${d}d`;
 };
 
-const connectedWithin = (updatedMs: number, minutes = 5) =>
-  updatedMs && Date.now() - updatedMs <= minutes * 60 * 1000;
+const connectedWithin = (updatedMs: number, minutes = 5) => {
+  if (!updatedMs) return false;
+  const GRACE_MS = 60_000; // 60s de gracia por desfases
+  return Date.now() - updatedMs <= minutes * 60 * 1000 + GRACE_MS;
+};
 
 const fmtNum = (v: number | null | undefined, suffix = "") =>
   v == null || Number.isNaN(Number(v)) ? "—" : `${Number(v).toFixed(1)}${suffix}`;
@@ -146,7 +150,29 @@ const MonitoringInfoPanel: React.FC<Props> = ({
   className = "",
   initialCollapsedMobile = true,
 }) => {
+  const { historyData } = useContext(WeatherContext);
   const [collapsed, setCollapsed] = useState(initialCollapsedMobile);
+
+  // Último timestamp del histórico para un room
+  const latestHistoryMs = useCallback(
+    (room: Room): number => {
+      const keyByEui = (room as any).devEUI ?? null;
+      const keyByName = room.name ?? (room as any).deviceName ?? null;
+      const list: any[] =
+        (keyByEui && (historyData as any)?.[keyByEui]) ||
+        (keyByName && (historyData as any)?.[keyByName]) ||
+        [];
+      if (!Array.isArray(list) || list.length === 0) return 0;
+
+      let maxMs = 0;
+      for (const m of list) {
+        const ms = toMs(m.timestamp || m.created_at || m.time || m.date || m.updatedAt);
+        if (ms > maxMs) maxMs = ms;
+      }
+      return maxMs;
+    },
+    [historyData]
+  );
 
   // Auto-colapsar en pantallas pequeñas
   useEffect(() => {
@@ -156,9 +182,12 @@ const MonitoringInfoPanel: React.FC<Props> = ({
 
   const { latestAbs, latestRel, avgTemp, totals } = useMemo(() => {
     const list = (rooms ?? []).map((r) => {
-      const updatedMs = toMs(
+      const directMs = toMs(
         (r as any).updatedAt ?? (r as any).lastSeen ?? (r as any).timestamp
       );
+      const histMs = latestHistoryMs(r);
+      const updatedMs = Math.max(directMs, histMs);
+
       return {
         updatedMs,
         connected: connectedWithin(updatedMs, freshnessMinutes),
@@ -205,7 +234,7 @@ const MonitoringInfoPanel: React.FC<Props> = ({
         normal,
       },
     };
-  }, [rooms, freshnessMinutes]);
+  }, [rooms, freshnessMinutes, latestHistoryMs]);
 
   /* ====== UI ====== */
   return (
@@ -340,7 +369,7 @@ const MonitoringInfoPanel: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Columna 2: Distribución por estado (píldoras, sin barras) */}
+          {/* Columna 2: Distribución por estado (píldoras) */}
           <div className="flex flex-col gap-2">
             <p className="text-xs text-gray-500">Distribución por estado</p>
             <div className="flex flex-wrap gap-2">

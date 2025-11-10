@@ -178,9 +178,8 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
         >
           <div
             className="
-
               relative w-full sm:max-w-xl lg:max-w-2xl
-              max-h-[82dvh]
+              max-h-[88dvh]
               rounded-t-2xl sm:rounded-2xl lg:rounded-3xl
               border border-gray-100 bg-white 
               shadow-[0_18px_44px_-14px_rgba(0,0,0,0.25)]
@@ -259,7 +258,7 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
             </div>
 
             {/* ===== BODY con scroll propio ===== */}
-            <div className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 py-3 max-h-[70dvh]">
+            <div className="flex-1 overflow-y-auto overscroll-contain px-3 sm:px-5 py-3 max-h-[74dvh]">
               {/* Tiles métricas */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <Tile
@@ -290,24 +289,49 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                   ) : (
                     <span className="text-red-700">Sin conexión reciente</span>
                   )}
-                  {device?.productivity != null && (
-                    <>
-                      {" · "}
-                      <span className="font-medium text-gray-900">Productividad:</span>{" "}
-                      {fmtNum(device.productivity as number, "%")}
-                    </>
-                  )}
                 </p>
               </div>
 
-              {/* Historial con scroll independiente (más pequeño) */}
+              {/* Historial */}
               <div className="mt-4">
                 <h3 className="mb-2 text-sm font-semibold text-gray-800">
                   Historial reciente
                 </h3>
 
+                {/* Vista móvil: tarjetas (más legible) */}
+                <div className="grid grid-cols-1 gap-2 sm:hidden">
+                  {history.length ? (
+                    history.map((row, i) => (
+                      <div
+                        key={i}
+                        className="rounded-xl border border-gray-200 bg-white p-3 text-sm flex items-center justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-900">
+                            {fmtDateTime(row.ts)}
+                          </p>
+                          <p className="text-xs text-gray-500">{timeAgo(row.ts)}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-gray-700">
+                            T: <span className="font-semibold">{fmtNum(row.temperature)}</span>
+                          </p>
+                          <p className="text-gray-700">
+                            H: <span className="font-semibold">{fmtNum(row.humedity)}</span>
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="rounded-xl border border-dashed border-gray-300 bg-white py-3 text-center text-sm text-gray-500">
+                      No hay registros históricos disponibles.
+                    </p>
+                  )}
+                </div>
+
+                {/* Vista ≥ sm: tabla compacta */}
                 {history.length ? (
-                  <div className="rounded-xl border border-gray-200 max-h-48 sm:max-h-56 lg:max-h-64 overflow-auto">
+                  <div className="hidden sm:block rounded-xl border border-gray-200 max-h-56 lg:max-h-64 overflow-auto">
                     <table className="min-w-full text-sm">
                       <thead className="sticky top-0 bg-gray-100/90 backdrop-blur text-gray-600">
                         <tr>
@@ -346,11 +370,7 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                       </tbody>
                     </table>
                   </div>
-                ) : (
-                  <p className="rounded-xl border border-dashed border-gray-300 bg-white py-3 text-center text-sm text-gray-500">
-                    No hay registros históricos disponibles.
-                  </p>
-                )}
+                ) : null}
               </div>
             </div>
 

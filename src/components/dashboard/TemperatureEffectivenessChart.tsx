@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useMemo, useState, useContext } from "react";
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -17,6 +16,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import { WeatherContext } from "../../context/WeatherContext";
+import { SensorsContext } from "../../context/SensorsContext";
 import type { Measure } from "../../types/types";
 
 /* =========================
@@ -25,22 +25,13 @@ import type { Measure } from "../../types/types";
 type SortBy = "none" | "asc" | "desc";
 
 interface TemperatureEffectivenessChartProps {
-  /** Rango ideal; por defecto [-20, -5] */
   minLimit?: number;
   maxLimit?: number;
-  /** Ordenar por temperatura promedio (none|asc|desc) */
   sortBy?: SortBy;
-  /** Mostrar skeleton de carga */
   loading?: boolean;
-  /** Click en barra (retorna zona y valor promedio) */
   onBarClick?: (payload: { zone: string; avgTemp: number }) => void;
-  /** Clase extra del contenedor */
   className?: string;
-  /** Minutos para considerar un dispositivo online (default: 5) */
-  liveWindowMin?: number;
-  /** Ocultar barras offline del gráfico (default: false = se muestran con patrón) */
   hideOffline?: boolean;
-  /** Excluir zonas offline del cálculo del promedio global (default: true) */
   excludeOfflineFromGlobalAvg?: boolean;
 }
 
@@ -49,7 +40,7 @@ interface TemperatureEffectivenessChartProps {
 ========================= */
 const useIsNarrow = (query = "(max-width: 640px)") => {
   const [narrow, setNarrow] = useState(false);
-  useEffect(() => {
+  React.useEffect(() => {
     if (typeof window === "undefined") return;
     const mq = window.matchMedia(query);
     const on = () => setNarrow(mq.matches);
@@ -60,23 +51,19 @@ const useIsNarrow = (query = "(max-width: 640px)") => {
   return narrow;
 };
 
-// Clamp tolerante
 const clamp = (v: number | null | undefined, min = -40, max = 110) => {
   if (v == null || Number.isNaN(v as number)) return null;
   return Math.max(min, Math.min(max, Number(v)));
 };
 
-// Truncado para etiquetas en ejes
 const ellipsize = (s: string, max = 16) => (s?.length > max ? s.slice(0, max - 1) + "…" : s);
 
-// Colores según rango
 const colorFor = (t: number, minLimit: number, maxLimit: number) => {
-  if (t < minLimit - 3 || t > maxLimit + 3) return "#EF4444"; // rojo (muy fuera)
-  if (t < minLimit || t > maxLimit) return "#F59E0B"; // ámbar (cerca, fuera)
-  return "#16A34A"; // verde (dentro)
+  if (t < minLimit - 3 || t > maxLimit + 3) return "#EF4444"; // rojo
+  if (t < minLimit || t > maxLimit) return "#F59E0B"; // ámbar
+  return "#16A34A"; // verde
 };
 
-// Fecha segura
 const toSafeDate = (v: any): Date | null => {
   if (!v && v !== 0) return null;
   if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
@@ -117,6 +104,31 @@ const fmtRel = (d: Date | null) => {
 };
 
 /* =========================
+   Resolución de histórico unificada
+========================= */
+type HistoryDict = Record<string, any[]>;
+
+const buildLooseIndex = (historyData: HistoryDict) => {
+  const index = new Map<string, string>();
+  for (const k of Object.keys(historyData || {})) {
+    index.set(String(k).toLowerCase(), k);
+  }
+  return index;
+};
+
+const pickHistory = (sensor: any, historyData: HistoryDict, looseIndex: Map<string, string>) => {
+  const cands = [sensor?.devEUI, sensor?.name, sensor?.deviceName]
+    .map((x) => (x == null ? "" : String(x)))
+    .filter(Boolean);
+  for (const k of cands) if (historyData[k]) return historyData[k];
+  for (const k of cands) {
+    const real = looseIndex.get(k.toLowerCase());
+    if (real && historyData[real]) return historyData[real];
+  }
+  return [];
+};
+
+/* =========================
    Componente principal
 ========================= */
 const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessChartProps> = ({
@@ -126,79 +138,60 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
   loading = false,
   onBarClick,
   className = "",
-  liveWindowMin = 5,
   hideOffline = false,
   excludeOfflineFromGlobalAvg = true,
 }) => {
   const { sensors, historyData } = useContext(WeatherContext);
+  const { getSmartConnection } = useContext(SensorsContext);
   const isNarrow = useIsNarrow();
 
-  // ====== Enriquecer datos: promedio, lastSeen, online/offline ======
+  const looseIndex = useMemo(() => buildLooseIndex(historyData || {}), [historyData]);
+
   const enriched = useMemo(() => {
-    if (!sensors?.length || !historyData) return [] as Array<{
-      zone: string;
-      avgTemp: number;
-      lastSeen: Date | null;
-      isConnected: boolean;
-    }>;
+    if (!sensors?.length || !historyData) {
+      return [] as Array<{ zone: string; avgTemp: number; lastSeen: Date | null; isConnected: boolean }>;
+    }
 
     const rows = sensors.map((sensor, i) => {
-      const key = (sensor as any).devEUI ?? sensor.name;
-      const list: Measure[] = historyData[key] || [];
+      const keyLabel = (sensor as any).deviceName || (sensor as any).name || (sensor as any).devEUI || `Zona ${i + 1}`;
+      const list: Measure[] = pickHistory(sensor, historyData, looseIndex) as any[];
 
-      // temperaturas de todo el historial disponible (puedes acotar si lo necesitas)
       const temps = list
-        .map((m) =>
-          clamp(
-            (m as any)?.temperature ??
-              (m as any)?.data?.temperature ??
-              (m as any)?.temp,
-            -100,
-            200
-          )
-        )
+        .map((m: any) => clamp(m?.temperature ?? m?.data?.temperature ?? (m as any)?.temp, -100, 200))
         .filter((v): v is number => v !== null && !isNaN(v));
-
       const avg = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : NaN;
 
-      // determinar última actualización a partir del historial o del propio sensor
+      // conexión usando la misma lógica del contexto
+      const conn = getSmartConnection(sensor, list);
+      // fecha de último dato (para tooltip)
       const lastRaw =
         list.length
           ? (list[list.length - 1] as any).timestamp ??
             (list[list.length - 1] as any).created_at ??
             (list[list.length - 1] as any).updatedAt ??
             (list[list.length - 1] as any).date
-          : (sensor as any).updatedAt ??
-            (sensor as any).lastSeen ??
-            (sensor as any).timestamp ??
-            (sensor as any).date;
-
-      const lastSeen = toSafeDate(lastRaw);
-      const isConnected = !!lastSeen && (Date.now() - lastSeen.getTime()) / 60000 <= liveWindowMin;
+          : (sensor as any).updatedAt ?? (sensor as any).lastSeen ?? (sensor as any).timestamp ?? (sensor as any).date;
 
       return {
-        zone: (sensor as any).deviceName || sensor.name || key || `Zona ${i + 1}`,
+        zone: keyLabel,
         avgTemp: Number.isFinite(avg) ? Number(avg.toFixed(2)) : NaN,
-        lastSeen,
-        isConnected,
+        lastSeen: toSafeDate(lastRaw),
+        isConnected: !!conn.isConnected,
       };
     });
 
-    // ordenar
     const ordered =
       sortBy === "asc"
-        ? [...rows].sort((a, b) => (a.avgTemp - b.avgTemp))
+        ? [...rows].sort((a, b) => a.avgTemp - b.avgTemp)
         : sortBy === "desc"
-        ? [...rows].sort((a, b) => (b.avgTemp - a.avgTemp))
+        ? [...rows].sort((a, b) => b.avgTemp - a.avgTemp)
         : rows;
 
-    // filtrar si se requiere ocultar offline
     return hideOffline ? ordered.filter((r) => r.isConnected) : ordered;
-  }, [sensors, historyData, sortBy, liveWindowMin, hideOffline]);
+  }, [sensors, historyData, sortBy, hideOffline, getSmartConnection, looseIndex]);
 
   const hasData = enriched.length > 0;
 
-  // ====== Última actualización global ======
   const globalLast = useMemo(() => {
     if (!enriched.length) return null as Date | null;
     return enriched.reduce<Date | null>((acc, r) => {
@@ -208,7 +201,6 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
     }, null);
   }, [enriched]);
 
-  // ====== Promedio global (opcionalmente excluye offline) ======
   const globalAvg = useMemo(() => {
     const base = excludeOfflineFromGlobalAvg ? enriched.filter((r) => r.isConnected) : enriched;
     const temps = base.map((r) => r.avgTemp).filter((n) => Number.isFinite(n));
@@ -216,52 +208,6 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
     return Number.isFinite(avg) ? avg : NaN;
   }, [enriched, excludeOfflineFromGlobalAvg]);
 
-  // ====== Exportar PNG (@2x) ======
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const handleExport = useCallback(async () => {
-    const container = containerRef.current;
-    if (!container) return;
-    const svg = container.querySelector("svg");
-    if (!svg) return;
-
-    const serializer = new XMLSerializer();
-    const svgStr = serializer.serializeToString(svg);
-    const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    await new Promise<void>((res, rej) => {
-      img.onload = () => res();
-      img.onerror = () => rej(new Error("No se pudo cargar el SVG"));
-      img.src = url;
-    });
-
-    const bbox = svg.getBoundingClientRect();
-    const w = Math.max(900, Math.round(bbox.width));
-    const h = Math.max(420, Math.round(bbox.height));
-
-    const canvas = document.createElement("canvas");
-    canvas.width = w * 2;
-    canvas.height = h * 2;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    canvas.toBlob((png) => {
-      if (!png) return;
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(png);
-      link.download = `temperature-effectiveness-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
-      link.click();
-      URL.revokeObjectURL(url);
-    }, "image/png");
-  }, []);
-
-  // ====== Gradientes / patrón offline ======
   const gradients = enriched.map((d, i) => {
     const base = Number.isFinite(d.avgTemp) ? colorFor(d.avgTemp, minLimit, maxLimit) : "#9CA3AF";
     return {
@@ -273,7 +219,6 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
     };
   });
 
-  // ====== Tooltip enriquecido ======
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     const row = payload[0]?.payload ?? {};
@@ -291,7 +236,10 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
           {label}
         </p>
         <p>
-          Promedio: <span className={`font-bold ${tone}`}>{Number.isFinite(v) ? v.toFixed(1) : "—"}°C</span>
+          Promedio:{" "}
+          <span className={`font-bold ${tone}`}>
+            {Number.isFinite(v) ? v.toFixed(1) : "—"}°C
+          </span>
         </p>
         <p>
           Estado:{" "}
@@ -302,24 +250,19 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
           )}
         </p>
         <p>
-          Última actualización: <span className="font-medium">{fmtAbs(row.lastSeen)}</span>
-          {row.lastSeen && <span className="text-gray-500"> {" ("}{fmtRel(row.lastSeen)}{")"}</span>}
+          Última actualización:{" "}
+          <span className="font-medium">{fmtAbs(row.lastSeen)}</span>
+          {row.lastSeen && <span className="text-gray-500"> ({fmtRel(row.lastSeen)})</span>}
         </p>
       </div>
     );
   };
 
-  // ====== Render ======
   return (
-    <div
-      className={`bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-5 ${className}`}
-      ref={containerRef}
-    >
-      {/* Header con acciones y meta-info */}
+    <div className={`bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-5 ${className}`}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="text-sm text-gray-600">
-          Rango ideal:{" "}
-          <span className="font-semibold text-gray-800">{minLimit}°C</span> a{" "}
+          Rango ideal: <span className="font-semibold text-gray-800">{minLimit}°C</span> a{" "}
           <span className="font-semibold text-gray-800">{maxLimit}°C</span>
         </div>
 
@@ -338,17 +281,9 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
               <span className="ml-1">({fmtRel(globalLast)})</span>
             </span>
           )}
-
-          <button
-            onClick={handleExport}
-            className="px-2.5 py-1.5 rounded-md text-xs bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200"
-          >
-            Exportar PNG
-          </button>
         </div>
       </div>
 
-      {/* Contenido */}
       <div className="relative w-full h-[340px] sm:h-[380px] md:h-[420px]">
         {loading ? (
           <div className="h-full w-full animate-pulse">
@@ -362,7 +297,6 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
               margin={{ top: 10, right: 16, left: 8, bottom: isNarrow ? 52 : 32 }}
               barGap={8}
             >
-              {/* Defs: gradientes por barra + patrón offline */}
               <defs>
                 {gradients.map((g) => (
                   <linearGradient key={g.id} id={g.id} x1="0" y1="0" x2="0" y2="1">
@@ -371,14 +305,12 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
                     ))}
                   </linearGradient>
                 ))}
-                {/* Patrón gris diagonal para OFFLINE */}
                 <pattern id="diag-offline" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
                   <rect width="6" height="6" fill="#E5E7EB" />
                   <line x1="0" y1="0" x2="0" y2="6" stroke="#9CA3AF" strokeWidth="2" />
                 </pattern>
               </defs>
 
-              {/* Banda de rango ideal */}
               <ReferenceArea y1={minLimit} y2={maxLimit} fill="#22C55E" fillOpacity={0.12} />
 
               <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
@@ -392,10 +324,7 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
                 tickFormatter={(v: string) => ellipsize(v, isNarrow ? 14 : 20)}
               />
               <YAxis
-                domain={[
-                  Math.min(-40, minLimit - 10),
-                  Math.max(80, maxLimit + 10),
-                ]}
+                domain={[Math.min(-40, minLimit - 10), Math.max(80, maxLimit + 10)]}
                 tick={{ fontSize: 11, fill: "#6b7280" }}
                 tickFormatter={(v) => `${v}°C`}
                 axisLine={false}
@@ -403,7 +332,6 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
 
               <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
 
-              {/* Línea de promedio global */}
               {Number.isFinite(globalAvg) && (
                 <ReferenceLine
                   y={globalAvg}
@@ -431,18 +359,13 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
                 name="Promedio de Temperatura"
                 radius={[8, 8, 0, 0]}
                 maxBarSize={72}
-                onClick={(d: any) => {
-                  if (!onBarClick) return;
-                  onBarClick({ zone: d?.zone, avgTemp: d?.avgTemp });
-                }}
+                onClick={(d: any) => onBarClick?.({ zone: d?.zone, avgTemp: d?.avgTemp })}
                 isAnimationActive
                 animationDuration={700}
               >
-                {/* Etiquetas: usar firma correcta (value, entry, index) */}
                 <LabelList
                   dataKey="avgTemp"
                   position="top"
-                  // ⚠️ Hack de typing:
                   formatter={
                     ((value: any, entry: any) => {
                       const num = Number(value ?? NaN);
@@ -451,9 +374,6 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
                     }) as unknown as (label: React.ReactNode) => React.ReactNode
                   }
                 />
-
-
-                {/* Celdas: gradiente si online, patrón si offline */}
                 {enriched.map((row, i) => (
                   <Cell
                     key={`cell-${i}`}
@@ -467,9 +387,7 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-400">
-            Sin datos disponibles
-          </div>
+          <div className="flex items-center justify-center h-full text-gray-400">Sin datos disponibles</div>
         )}
       </div>
     </div>

@@ -15,60 +15,12 @@ import AlertThresholdModal from "../components/devices/AlertThresholdModal";
 import DeviceDetailsModal from "../components/devices/DeviceDetailsModal";
 import ResponsiveTable from "../components/ui/ResponsiveTable";
 
-import { SensorsContext } from "../context/SensorsContext";
+import { SensorsContext, type ConnInfo } from "../context/SensorsContext";
 import { WeatherContext } from "../context/WeatherContext";
 import type { Room, Measure } from "../types/types";
 
 /* =========================
-   Utils de tiempo/fechas
-========================= */
-const normalizeDate = (value: any): string => {
-  if (!value) return new Date().toISOString();
-  if (typeof value === "number") {
-    const ms = value < 9_999_999_999 ? value * 1000 : value;
-    return new Date(ms).toISOString();
-  }
-  if (typeof value === "string") {
-    const s = value.includes(" ") ? value.replace(" ", "T") : value;
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-  }
-  const d = new Date(value);
-  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-};
-
-const getConnInfo = (updatedAt?: string | Date) => {
-  if (!updatedAt) {
-    return { isConnected: false, last: null as Date | null, diffMin: Infinity };
-  }
-  const last = new Date(updatedAt);
-  const diffMin = (Date.now() - last.getTime()) / 60000;
-  return { isConnected: diffMin <= 5, last, diffMin };
-};
-
-const formatLastSeen = (d: Date | null) => {
-  if (!d) return "desconocido";
-  return d.toLocaleString("es-DO", {
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
-
-const formatRelative = (min: number) => {
-  if (!isFinite(min)) return "";
-  if (min < 1) return "menos de 1 min";
-  if (min < 60) return `${Math.floor(min)} min`;
-  const h = min / 60;
-  if (h < 24) return `${Math.floor(h)} h`;
-  const d = h / 24;
-  return `${Math.floor(d)} d`;
-};
-
-/* =========================
-   UI helpers
+   Helpers UI
 ========================= */
 const Button = ({
   children,
@@ -129,12 +81,18 @@ const EmptyState = ({ onRetry }: { onRetry: () => void }) => (
   </div>
 );
 
-/* =========================
-   Render helpers (estado/batería)
-========================= */
-const renderConnectionStatus = (updatedAt?: string | Date) => {
-  const { isConnected, last, diffMin } = getConnInfo(updatedAt);
-  if (isConnected) {
+const formatRelative = (min: number) => {
+  if (!isFinite(min)) return "";
+  if (min < 1) return "menos de 1 min";
+  if (min < 60) return `${Math.floor(min)} min`;
+  const h = min / 60;
+  if (h < 24) return `${Math.floor(h)} h`;
+  const d = h / 24;
+  return `${Math.floor(d)} d`;
+};
+
+const renderConnectionStatus = (conn: ConnInfo) => {
+  if (conn.isConnected) {
     return (
       <div className="flex flex-col">
         <span className="flex items-center gap-1 text-green-600 font-medium">
@@ -142,7 +100,17 @@ const renderConnectionStatus = (updatedAt?: string | Date) => {
           Conectado
         </span>
         <span className="text-xs text-gray-500">
-          Última lectura: {formatLastSeen(last)} (hace {formatRelative(diffMin)})
+          Última lectura:{" "}
+          {conn.last
+            ? conn.last.toLocaleString("es-DO", {
+                weekday: "short",
+                day: "2-digit",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "desconocido"}{" "}
+          (hace {formatRelative(conn.diffMin)})
         </span>
       </div>
     );
@@ -154,15 +122,23 @@ const renderConnectionStatus = (updatedAt?: string | Date) => {
         Desconectado
       </span>
       <span className="text-xs text-gray-500">
-        Última conexión: {formatLastSeen(last)}
-        {isFinite(diffMin) ? ` (hace ${formatRelative(diffMin)})` : ""}
+        Última conexión:{" "}
+        {conn.last
+          ? conn.last.toLocaleString("es-DO", {
+              weekday: "short",
+              day: "2-digit",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "desconocido"}
+        {isFinite(conn.diffMin) ? ` (hace ${formatRelative(conn.diffMin)})` : ""}
       </span>
     </div>
   );
 };
 
 const renderBattery = (level: number | undefined | null, isConnected: boolean) => {
-  // Si está offline: mostrar claro y con ícono de "offline"
   if (!isConnected) {
     return (
       <span className="flex items-center text-gray-400 font-medium">
@@ -200,14 +176,12 @@ const renderBattery = (level: number | undefined | null, isConnected: boolean) =
    Componente principal
 ========================= */
 const DevicesPage: React.FC = () => {
-  const { sensors, refreshSensors } = useContext(SensorsContext);
+  const { sensors, refreshSensors, getSmartConnection } = useContext(SensorsContext);
   const { historyData } = useContext(WeatherContext);
 
   const [selectedDevice, setSelectedDevice] = useState<Room | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-
-  // 👉 id real que pasa al modal (el modal se encarga de consultar el API)
   const [configDeviceId, setConfigDeviceId] = useState<string>("");
 
   // Filtra “almacén/warehouse” de la tabla
@@ -243,7 +217,7 @@ const DevicesPage: React.FC = () => {
     }
   }, []);
 
-  // Carga inicial una sola vez
+  // Carga inicial
   useEffect(() => {
     handleRefresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -256,11 +230,11 @@ const DevicesPage: React.FC = () => {
       (keyByEui && historyData[keyByEui]) ||
       (keyByName && historyData[keyByName]) ||
       [];
-    const parsed: Measure[] = rawList.map((m: any) => ({
-      timestamp: normalizeDate(m.timestamp || m.created_at || m.time || m.date || m.updatedAt),
+    const parsed: Measure[] = (rawList as any[]).map((m: any) => ({
+      timestamp: (m.timestamp || m.created_at || m.time || m.date || m.updatedAt) as string,
       temperature: Number(m.temperature ?? 0),
       humedity: Number(m.humedity ?? m.humidity ?? m.data?.humidity ?? 0),
-      productivity: Number(m.productivity ?? 0),
+      productivity: Number(m.productivity ?? m.power ?? 0),
     }));
     setSelectedDevice({ ...row, history: parsed });
     setIsDetailsOpen(true);
@@ -283,9 +257,7 @@ const DevicesPage: React.FC = () => {
     >
       {/* Toolbar */}
       <div className="flex justify-end mb-4 relative">
-        {isLoading && (
-          <div className="absolute inset-0 rounded-lg bg-white/60 backdrop-blur-[1px]" />
-        )}
+        {isLoading && <div className="absolute inset-0 rounded-lg bg-white/60 backdrop-blur-[1px]" />}
         <Button onClick={handleRefresh} disabled={isLoading}>
           <ArrowPathIcon className={["w-5 h-5", isLoading ? "animate-spin" : ""].join(" ")} />
           {isLoading ? "Actualizando..." : "Refrescar datos"}
@@ -332,28 +304,34 @@ const DevicesPage: React.FC = () => {
               label: "Batería",
               align: "left",
               render: (_v, row) => {
-                const { isConnected } = getConnInfo((row as any).updatedAt);
+                const key = (row.devEUI ?? row.name) as string;
+                const hist = historyData[key] as Measure[] | undefined;
+                const conn = getSmartConnection(row, hist);
                 const level = Number(
-                  (row as any).battery ??
-                  (row as any).lastPower ??
-                  (row as any).productivity
+                  (row as any).battery ?? (row as any).lastPower ?? (row as any).productivity
                 );
-                return renderBattery(Number.isFinite(level) ? level : undefined, isConnected);
+                return renderBattery(Number.isFinite(level) ? level : undefined, conn.isConnected);
               },
             },
             {
               key: "updatedAt",
               label: "Estado",
               align: "left",
-              render: (v) => renderConnectionStatus(v),
+              render: (_v, row) => {
+                const key = (row.devEUI ?? row.name) as string;
+                const hist = historyData[key] as Measure[] | undefined;
+                const conn = getSmartConnection(row, hist);
+                return renderConnectionStatus(conn);
+              },
             },
             {
               key: "temperature",
               label: "Temperatura (°C)",
               align: "right",
               render: (v, row) => {
-                const { isConnected } = getConnInfo((row as any).updatedAt);
-                if (!isConnected) return "—";
+                const key = (row.devEUI ?? row.name) as string;
+                const conn = getSmartConnection(row, historyData[key] as Measure[] | undefined);
+                if (!conn.isConnected) return "—";
                 return v != null && !Number.isNaN(v) ? Number(v).toFixed(1) : "—";
               },
             },
@@ -362,8 +340,9 @@ const DevicesPage: React.FC = () => {
               label: "Humedad (%RH)",
               align: "right",
               render: (v, row) => {
-                const { isConnected } = getConnInfo((row as any).updatedAt);
-                if (!isConnected) return "—";
+                const key = (row.devEUI ?? row.name) as string;
+                const conn = getSmartConnection(row, historyData[key] as Measure[] | undefined);
+                if (!conn.isConnected) return "—";
                 const h = v ?? (row as any).humidity ?? (row as any).data?.humidity ?? null;
                 return h != null && !Number.isNaN(h) ? Number(h).toFixed(1) : "—";
               },
@@ -381,7 +360,6 @@ const DevicesPage: React.FC = () => {
         />
       )}
 
-      {/* Modal de umbrales: hace fetch individual cuando se abre */}
       <AlertThresholdModal
         isOpen={!!configDeviceId}
         deviceId={configDeviceId}

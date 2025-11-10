@@ -1,8 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* eslint-disable prefer-const */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useMemo, useState } from "react";
-import { CalendarIcon, ArrowRightIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
+import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { WeatherContext } from "../context/WeatherContext";
 import PageContainer from "../components/layout/PageContainer";
 import ExportButton from "../components/report/ExportButton";
@@ -22,128 +22,117 @@ export type ReportRow = {
   "Hum. Máx (%)": string | number;
   "Último Registro": string;
   "Total Registros": number;
-  /** Histórico filtrado para el expandible */
   __history?: Measure[];
 };
+type QuickRange = "today" | "7d" | "30d" | "month" | "custom";
 
 /* =========================
-   Helpers de fechas (local)
+   Helpers de fechas
 ========================= */
-
-/** Convierte 'YYYY-MM-DD' a Date local (00:00) */
 const fromYMDLocal = (ymd: string) => {
   const [y, m, d] = ymd.split("-").map(Number);
   return new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
 };
-
-/** Devuelve 'YYYY-MM-DD' en local sin pasar por toISOString() */
 const toYMD = (d: Date) => {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 };
-
 const startOfDayLocal = (ymd: string) => fromYMDLocal(ymd);
-
 const endOfDayLocal = (ymd: string) => {
   const dt = fromYMDLocal(ymd);
   dt.setHours(23, 59, 59, 999);
   return dt;
 };
-
-/** Asegura fechas válidas e inclusivas en local */
 const normalizeRange = (start: string, end: string) => {
   const today = new Date();
-  const startDate = fromYMDLocal(start);
-  let endDate = fromYMDLocal(end);
-
-  // inválidos => última semana
-  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+  const s = fromYMDLocal(start);
+  let e = fromYMDLocal(end);
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) {
     const t = new Date();
-    const weekAgo = new Date(t.getTime() - 7 * 24 * 60 * 60 * 1000);
-    return { start: toYMD(weekAgo), end: toYMD(t) };
+    const w = new Date(t.getTime() - 7 * 24 * 3600 * 1000);
+    return { start: toYMD(w), end: toYMD(t) };
   }
-
-  // evita invertidos
-  if (endDate < startDate) endDate = startDate;
-
-  // evita futuro
-  if (endDate > today) endDate = today;
-
-  return { start: toYMD(startDate), end: toYMD(endDate) };
+  if (e < s) e = s;
+  if (e > today) e = today;
+  return { start: toYMD(s), end: toYMD(e) };
 };
-
-/** Parser de timestamp robusto -> ms */
 const parseTs = (rec: any): number => {
-  const ts = rec?.timestamp ?? rec?.created_at ?? rec?.time ?? rec?.date ?? rec?.updatedAt;
+  const ts = rec?.timestamp ?? rec?.created_at ?? rec?.time ?? rec?.date ?? rec?.updatedAt ?? null;
   if (ts == null) return NaN;
-
-  if (typeof ts === "number") {
-    // soporta epoch en segundos y ms
-    return ts < 9_999_999_999 ? ts * 1000 : ts;
-  }
-
+  if (typeof ts === "number") return ts < 9_999_999_999 ? ts * 1000 : ts;
   if (typeof ts === "string") {
-    // Soporta "YYYY-MM-DD HH:mm:ss" -> cambiar espacio por 'T'
     const s = ts.includes(" ") ? ts.replace(" ", "T") : ts;
     const ms = Date.parse(s);
     return Number.isNaN(ms) ? NaN : ms;
   }
-
   const ms = new Date(ts).getTime();
   return Number.isNaN(ms) ? NaN : ms;
 };
 
 /* =========================
-   Página
+   Página (súper simple)
 ========================= */
 const ReportPage: React.FC = () => {
-  const { historyData } = useContext(WeatherContext);
+  const { historyData, refreshData } = useContext(WeatherContext);
 
-  // Defaults en YMD (local)
   const today = new Date();
   const todayStr = toYMD(today);
-  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const weekAgo = new Date(today.getTime() - 7 * 24 * 3600 * 1000);
   const weekAgoStr = toYMD(weekAgo);
 
   const [dateRange, setDateRange] = useState({ start: weekAgoStr, end: todayStr });
-  const [rangeError, setRangeError] = useState<string | null>(null);
+  const [quick, setQuick] = useState<QuickRange>("7d");
+  const [q, setQ] = useState("");
+  const [hideEmpty, setHideEmpty] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const lastRefreshRef = useRef<Date | null>(null);
 
-  /** Cambio de rango con validación (local) */
+  /* Rango rápido */
+  const applyQuick = (kind: QuickRange) => {
+    const now = new Date();
+    let start = toYMD(now);
+    let end = toYMD(now);
+    if (kind === "7d") start = toYMD(new Date(now.getTime() - 7 * 24 * 3600 * 1000));
+    else if (kind === "30d") start = toYMD(new Date(now.getTime() - 30 * 24 * 3600 * 1000));
+    else if (kind === "month") start = toYMD(new Date(now.getFullYear(), now.getMonth(), 1));
+    setError(null);
+    setDateRange(normalizeRange(start, end));
+    setQuick(kind);
+  };
+
+  /* Cambio de fechas */
   const handleDateChange = (type: "start" | "end", value: string) => {
     if (!value) return;
-    const candidate = { ...dateRange, [type]: value };
-    const normalized = normalizeRange(candidate.start, candidate.end);
-
-    // Validaciones de UX
+    const normalized = normalizeRange(
+      type === "start" ? value : dateRange.start,
+      type === "end" ? value : dateRange.end
+    );
     const s = fromYMDLocal(normalized.start);
     const e = fromYMDLocal(normalized.end);
     const now = new Date();
-
-    if (e < s) setRangeError("La fecha final no puede ser menor que la inicial.");
-    else if (e > now) setRangeError("La fecha final no puede ser futura.");
-    else setRangeError(null);
-
+    if (e < s) setError("Fecha final menor que inicial.");
+    else if (e > now) setError("Fecha final en el futuro.");
+    else setError(null);
     setDateRange(normalized);
+    setQuick("custom");
   };
 
-  /** Ventana inclusiva en ms (local) */
+  /* Ventana inclusiva */
   const windowMs = useMemo(() => {
     const s = startOfDayLocal(dateRange.start).getTime();
     const e = endOfDayLocal(dateRange.end).getTime();
     return [s, e] as const;
   }, [dateRange]);
 
-  /** Agregación (memoizada, sin efectos) */
+  /* Agregación */
   const reportData: ReportRow[] = useMemo(() => {
     if (!historyData || typeof historyData !== "object") return [];
+    const [startMs, endMs] = windowMs;
 
     const rows: ReportRow[] = Object.entries(historyData).map(([zoneKey, measuresAny]) => {
       const measures = Array.isArray(measuresAny) ? (measuresAny as Measure[]) : [];
-
-      // filtrar por rango si hay timestamps
-      const [startMs, endMs] = windowMs;
       const hasTs = measures.some((m) => !Number.isNaN(parseTs(m)));
       const base = hasTs
         ? measures.filter((m) => {
@@ -152,14 +141,12 @@ const ReportPage: React.FC = () => {
           })
         : measures;
 
-      // nombre amigable
-      const first = measures.length ? (measures[0] as any) : undefined;
-      const friendlyName =
-        first?.deviceName ?? first?.name ?? first?.roomName ?? first?.zone ?? zoneKey;
+      const first = measures[0] as any;
+      const name = first?.deviceName ?? first?.name ?? first?.roomName ?? first?.zone ?? zoneKey;
 
-      if (base.length === 0) {
+      if (!base.length) {
         return {
-          Zona: friendlyName,
+          Zona: name,
           "Promedio Temperatura (°C)": "—",
           "Promedio Humedad (%)": "—",
           "Temp Mín (°C)": "—",
@@ -172,112 +159,148 @@ const ReportPage: React.FC = () => {
         };
       }
 
-      const temps = base
-        .map((m: any) => Number(m.temperature))
-        .filter((v) => Number.isFinite(v));
+      const temps = base.map((m: any) => Number(m.temperature)).filter(Number.isFinite);
       const hums = base
         .map((m: any) => Number(m.humedity ?? m.humidity ?? m.hum))
-        .filter((v) => Number.isFinite(v));
+        .filter(Number.isFinite);
 
       const sum = (a: number, b: number) => a + b;
-      const avg = (arr: number[]) =>
-        arr.length ? (arr.reduce(sum, 0) / arr.length).toFixed(2) : "—";
+      const avg = (arr: number[]) => (arr.length ? (arr.reduce(sum, 0) / arr.length).toFixed(2) : "—");
 
-      const avgTemp = avg(temps);
-      const avgHum = avg(hums);
-
-      const minTemp = temps.length ? Math.min(...temps).toFixed(2) : "—";
-      const maxTemp = temps.length ? Math.max(...temps).toFixed(2) : "—";
-      const minHum = hums.length ? Math.min(...hums).toFixed(2) : "—";
-      const maxHum = hums.length ? Math.max(...hums).toFixed(2) : "—";
-
-      // último registro por ts real (sin usar .at)
       const sorted = [...base].sort((a, b) => (parseTs(a) || 0) - (parseTs(b) || 0));
-      const last = sorted.length ? sorted[sorted.length - 1] : undefined;
-      const lastTs = last != null ? parseTs(last) : NaN;
-      const lastFormatted = Number.isNaN(lastTs)
-        ? "—"
-        : new Date(lastTs).toLocaleString("es-DO", { dateStyle: "short", timeStyle: "short" });
+      const last = sorted[sorted.length - 1];
+      const lastTs = last ? parseTs(last) : NaN;
 
       return {
-        Zona: friendlyName,
-        "Promedio Temperatura (°C)": avgTemp,
-        "Promedio Humedad (%)": avgHum,
-        "Temp Mín (°C)": minTemp,
-        "Temp Máx (°C)": maxTemp,
-        "Hum. Mín (%)": minHum,
-        "Hum. Máx (%)": maxHum,
-        "Último Registro": lastFormatted,
+        Zona: name,
+        "Promedio Temperatura (°C)": avg(temps),
+        "Promedio Humedad (%)": avg(hums),
+        "Temp Mín (°C)": temps.length ? Math.min(...temps).toFixed(2) : "—",
+        "Temp Máx (°C)": temps.length ? Math.max(...temps).toFixed(2) : "—",
+        "Hum. Mín (%)": hums.length ? Math.min(...hums).toFixed(2) : "—",
+        "Hum. Máx (%)": hums.length ? Math.max(...hums).toFixed(2) : "—",
+        "Último Registro": Number.isNaN(lastTs)
+          ? "—"
+          : new Date(lastTs).toLocaleString("es-DO", { dateStyle: "short", timeStyle: "short" }),
         "Total Registros": base.length,
-        __history: base, // el expandible usará este histórico ya filtrado
+        __history: base,
       };
     });
 
-    // orden: más registros primero
-    rows.sort((a, b) => (b["Total Registros"] ?? 0) - (a["Total Registros"] ?? 0));
-    return rows;
-  }, [historyData, windowMs]);
+    const text = q.trim().toLowerCase();
+    const filtered = rows.filter((r) => {
+      const passText = text ? String(r.Zona).toLowerCase().includes(text) : true;
+      const passEmpty = hideEmpty ? (r["Total Registros"] ?? 0) > 0 : true;
+      return passText && passEmpty;
+    });
 
-  /** Label del rango (días inclusivos) */
-  const rangeLabel = useMemo(() => {
-    const s = startOfDayLocal(dateRange.start).getTime();
-    const e = endOfDayLocal(dateRange.end).getTime();
-    const diffDays = Math.floor((e - s) / (1000 * 3600 * 24)) + 1;
-    return diffDays <= 1 ? "1 día" : `${diffDays} días de datos`;
-  }, [dateRange]);
+    filtered.sort((a, b) => (b["Total Registros"] ?? 0) - (a["Total Registros"] ?? 0));
+    return filtered;
+  }, [historyData, windowMs, q, hideEmpty]);
 
+  /* Autorefresco si incluye hoy */
+  useEffect(() => {
+    if (dateRange.end !== todayStr) return;
+    const id = setInterval(() => {
+      void refreshData?.();
+      lastRefreshRef.current = new Date();
+    }, 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [dateRange.end, todayStr, refreshData]);
+
+  /* =========================
+     UI — Mobile-first minimal
+  ========================== */
   return (
-    <PageContainer
-      title="Reporte de Promedios por Zona"
-      description="Analiza datos históricos de temperatura y humedad por zona. Exporta tus promedios y extremos en el rango elegido."
-    >
-      {/* Controles */}
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4 items-end bg-white border border-gray-100 rounded-2xl p-5 shadow-sm mb-8">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
-            <CalendarIcon className="w-5 h-5 text-gray-500" />
-            Periodo de análisis:
-          </label>
-
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <input
-              type="date"
-              value={dateRange.start}
-              onChange={(e) => handleDateChange("start", e.target.value)}
-              max={todayStr}
-              className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none flex-1"
-            />
-            <ArrowRightIcon className="w-5 h-5 text-gray-400 hidden sm:block" />
-            <input
-              type="date"
-              value={dateRange.end}
-              onChange={(e) => handleDateChange("end", e.target.value)}
-              min={dateRange.start}
-              max={todayStr}
-              className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none flex-1"
-            />
+    <PageContainer title="Reporte" description={`${reportData.length} zonas`}>
+      {/* Barra compacta (stack en móvil) */}
+      <div className="bg-white border border-gray-200 rounded-lg p-3 mb-4">
+        {/* Rango rápido: select en móvil, píldoras en desktop */}
+        <div className="flex flex-col gap-2">
+          <div className="sm:hidden">
+            <select
+              value={quick}
+              onChange={(e) => {
+                const k = e.target.value as QuickRange;
+                k === "custom" ? setQuick("custom") : applyQuick(k);
+              }}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+            >
+              <option value="today">Hoy</option>
+              <option value="7d">7 días</option>
+              <option value="30d">30 días</option>
+              <option value="month">Mes actual</option>
+              <option value="custom">Personalizado</option>
+            </select>
           </div>
-        </div>
 
-        <div className="flex justify-end w-full sm:w-auto">
-          <ExportButton data={reportData} startDate={dateRange.start} endDate={dateRange.end} />
+          <div className="hidden sm:flex sm:flex-wrap sm:items-center sm:gap-1.5">
+            {(["today", "7d", "30d", "month", "custom"] as QuickRange[]).map((k) => (
+              <button
+                key={k}
+                onClick={() => (k === "custom" ? setQuick("custom") : applyQuick(k))}
+                className={[
+                  "px-3 py-1.5 rounded-md text-sm border",
+                  quick === k ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-300",
+                ].join(" ")}
+              >
+                {k === "today" ? "Hoy" : k === "7d" ? "7 días" : k === "30d" ? "30 días" : k === "month" ? "Mes" : "Personalizado"}
+              </button>
+            ))}
+
+            <div className="ml-auto">
+              <ExportButton data={reportData} startDate={dateRange.start} endDate={dateRange.end} />
+            </div>
+          </div>
+
+          {/* Fechas solo si es personalizado */}
+          {quick === "custom" && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={dateRange.start}
+                onChange={(e) => handleDateChange("start", e.target.value)}
+                max={toYMD(new Date())}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              />
+              <input
+                type="date"
+                value={dateRange.end}
+                onChange={(e) => handleDateChange("end", e.target.value)}
+                min={dateRange.start}
+                max={toYMD(new Date())}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+              />
+            </div>
+          )}
+
+          {/* Búsqueda + ocultar vacías */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar zona…"
+              className="w-full sm:flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm"
+            />
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                className="rounded border-gray-300"
+                checked={hideEmpty}
+                onChange={(e) => setHideEmpty(e.target.checked)}
+              />
+              Ocultar vacías
+            </label>
+            <div className="sm:hidden">
+              <ExportButton data={reportData} startDate={dateRange.start} endDate={dateRange.end} />
+            </div>
+          </div>
+
+          {error && <div className="text-xs text-amber-700">{error}</div>}
         </div>
       </div>
 
-      {/* Error rango */}
-      {rangeError && (
-        <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-2 rounded-lg mb-4 text-sm">
-          <ExclamationTriangleIcon className="w-5 h-5 text-yellow-600" />
-          {rangeError}
-        </div>
-      )}
-
-      {/* Resumen */}
-      <div className="text-sm text-gray-500 mb-3">
-        <strong>Rango seleccionado:</strong> {rangeLabel}
-      </div>
-
-      {/* Tabla */}
+      {/* Tabla (tu componente) */}
       <ReportTable data={reportData} />
     </PageContainer>
   );

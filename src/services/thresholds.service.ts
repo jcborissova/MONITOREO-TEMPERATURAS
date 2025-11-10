@@ -2,6 +2,9 @@
 import apiService from "../services/api.service";
 import { API_ENDPOINTS } from "../config/api.config";
 
+/* =========================
+   Tipos de datos
+========================= */
 export interface ThresholdDTO {
   id: number;
   dev_eui: string;
@@ -21,12 +24,22 @@ export interface ThresholdUpsert {
   temperature_max: number;
 }
 
+/** Estructura de umbral que usará la UI por sensor */
+export type SensorThreshold = {
+  temperature?: { min?: number; max?: number };
+  humidity?: { min?: number; max?: number };
+  /** Tolerancia para color ámbar (opcional, default 2) */
+  tolerance?: number;
+};
+
 const BASE = API_ENDPOINTS.THRESHOLDS ?? "/thresholds";
 
-/** ========= Cache simple con TTL para evitar GET generales repetidos ========= */
+/* =========================
+   Cache simple con TTL
+========================= */
 type CacheItem = { map: Map<string, ThresholdDTO>; byId: Map<number, ThresholdDTO>; at: number };
 let CACHE: CacheItem | null = null;
-const TTL_MS = 60_000; // 1 min (ajusta)
+const TTL_MS = 60_000; // 1 minuto
 
 function ensureCache() {
   if (!CACHE) CACHE = { map: new Map(), byId: new Map(), at: 0 };
@@ -59,9 +72,12 @@ function cacheDeleteById(id: number) {
 }
 
 function isFresh() {
-  return CACHE && Date.now() - CACHE.at <= TTL_MS;
+  return !!CACHE && Date.now() - CACHE!.at <= TTL_MS;
 }
 
+/* =========================
+   API CRUD + helpers
+========================= */
 export async function listThresholds(): Promise<ThresholdDTO[]> {
   if (isFresh()) return Array.from(CACHE!.map.values());
   const data = await apiService.get<ThresholdDTO[]>(BASE);
@@ -76,11 +92,10 @@ export async function getThreshold(id: number): Promise<ThresholdDTO> {
   return one;
 }
 
-/** Buscar por dev_eui SIN query param: usa cache y, si falta, 1 solo GET general */
 export async function getThresholdByDevEui(devEui: string): Promise<ThresholdDTO | null> {
   if (isFresh() && CACHE!.map.has(devEui)) return CACHE!.map.get(devEui)!;
-  const all = await listThresholds(); // hace el GET general solo si cache no fresco
-  return all.find(t => String(t.dev_eui) === devEui) ?? null;
+  const all = await listThresholds();
+  return all.find((t) => String(t.dev_eui) === devEui) ?? null;
 }
 
 export async function createThreshold(payload: ThresholdUpsert): Promise<ThresholdDTO> {
@@ -109,4 +124,30 @@ export async function upsertThresholdByDevEui(
   const body: ThresholdUpsert = { dev_eui: devEui, ...payload };
   if (existing) return updateThreshold(existing.id, body);
   return createThreshold(body);
+}
+
+/* =========================
+   Adaptadores para UI
+========================= */
+
+/** Convierte un DTO crudo al formato que consume la UI */
+export function dtoToThreshold(dto: ThresholdDTO): SensorThreshold {
+  const tMin = dto.temperature_min == null ? undefined : Number(dto.temperature_min);
+  const tMax = dto.temperature_max == null ? undefined : Number(dto.temperature_max);
+  const hMin = dto.humidity_min == null ? undefined : Number(dto.humidity_min);
+  const hMax = dto.humidity_max == null ? undefined : Number(dto.humidity_max);
+
+  return {
+    temperature: { min: Number.isFinite(tMin) ? tMin : undefined, max: Number.isFinite(tMax) ? tMax : undefined },
+    humidity:    { min: Number.isFinite(hMin) ? hMin : undefined, max: Number.isFinite(hMax) ? hMax : undefined },
+    tolerance: 2,
+  };
+}
+
+/** Descarga todos los umbrales y retorna un diccionario { devEui -> SensorThreshold } */
+export async function getAllThresholdsMap(): Promise<Record<string, SensorThreshold>> {
+  const list = await listThresholds();
+  const map: Record<string, SensorThreshold> = {};
+  for (const dto of list) map[String(dto.dev_eui)] = dtoToThreshold(dto);
+  return map;
 }
