@@ -1,7 +1,6 @@
 /* eslint-disable prefer-const */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-
 import React, { useMemo, useEffect, useState, useContext, useCallback } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -19,19 +18,22 @@ import {
 import type { Room } from "../../../types/types";
 import { WeatherContext } from "../../../context/WeatherContext";
 
-/* =========================
-   Helpers
-========================= */
+/* ========================= Helpers ========================= */
 const toMs = (v: any): number => {
-  if (!v) return 0;
-  const d =
-    typeof v === "number"
-      ? new Date(v < 9_999_999_999 ? v * 1000 : v)
-      : typeof v === "string"
-      ? new Date(v.includes(" ") ? v.replace(" ", "T") : v)
-      : new Date(v);
-  const ms = d.getTime();
-  return Number.isFinite(ms) ? ms : 0;
+  if (!v && v !== 0) return 0;
+  if (v instanceof Date) return isNaN(v.getTime()) ? 0 : v.getTime();
+  if (typeof v === "number") {
+    const ms = v < 9_999_999_999 ? v * 1000 : v;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  if (typeof v === "string") {
+    const s = v.includes(" ") ? v.replace(" ", "T") : v;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  const d = new Date(v as any);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
 };
 
 const timeAgo = (ms: number) => {
@@ -49,7 +51,7 @@ const timeAgo = (ms: number) => {
 
 const connectedWithin = (updatedMs: number, minutes = 5) => {
   if (!updatedMs) return false;
-  const GRACE_MS = 60_000; // 60s de gracia por desfases
+  const GRACE_MS = 60_000; // 60s de gracia
   return Date.now() - updatedMs <= minutes * 60 * 1000 + GRACE_MS;
 };
 
@@ -59,9 +61,7 @@ const fmtNum = (v: number | null | undefined, suffix = "") =>
 const pct = (num: number, den: number) =>
   den <= 0 ? 0 : Math.round((num / den) * 100);
 
-/* =========================
-   Subcomponentes UI
-========================= */
+/* ========================= Subcomponentes ========================= */
 const StatTile = ({
   icon,
   label,
@@ -85,7 +85,6 @@ const StatTile = ({
       : tone === "blue"
       ? "text-sky-600"
       : "text-gray-800";
-
   return (
     <div className="flex items-center gap-2 min-w-0">
       <span
@@ -98,9 +97,7 @@ const StatTile = ({
       <div className="min-w-0 leading-tight">
         <p className="text-[11px] text-gray-500">{label}</p>
         <p
-          className={`${
-            dense ? "text-sm" : "text-base sm:text-lg"
-          } font-semibold ${toneCls} truncate`}
+          className={`${dense ? "text-sm" : "text-base sm:text-lg"} font-semibold ${toneCls} truncate`}
         >
           {value}
         </p>
@@ -109,7 +106,6 @@ const StatTile = ({
   );
 };
 
-/** Píldora (badge) con conteo y porcentaje */
 const Pill = ({
   dotClass,
   label,
@@ -132,10 +128,8 @@ const Pill = ({
   );
 };
 
-/* =========================
-   Panel principal
-========================= */
-interface Props {
+/* ========================= Panel principal ========================= */
+interface InfoProps {
   rooms: Room[];
   /** minutos para considerar “conectado” (default 5) */
   freshnessMinutes?: number;
@@ -144,7 +138,7 @@ interface Props {
   initialCollapsedMobile?: boolean;
 }
 
-const MonitoringInfoPanel: React.FC<Props> = ({
+const MonitoringInfoPanel: React.FC<InfoProps> = ({
   rooms,
   freshnessMinutes = 5,
   className = "",
@@ -153,7 +147,6 @@ const MonitoringInfoPanel: React.FC<Props> = ({
   const { historyData } = useContext(WeatherContext);
   const [collapsed, setCollapsed] = useState(initialCollapsedMobile);
 
-  // Último timestamp del histórico para un room
   const latestHistoryMs = useCallback(
     (room: Room): number => {
       const keyByEui = (room as any).devEUI ?? null;
@@ -163,10 +156,11 @@ const MonitoringInfoPanel: React.FC<Props> = ({
         (keyByName && (historyData as any)?.[keyByName]) ||
         [];
       if (!Array.isArray(list) || list.length === 0) return 0;
-
       let maxMs = 0;
       for (const m of list) {
-        const ms = toMs(m.timestamp || m.created_at || m.time || m.date || m.updatedAt);
+        const ms = toMs(
+          m.timestamp || m.created_at || m.time || m.date || m.updatedAt
+        );
         if (ms > maxMs) maxMs = ms;
       }
       return maxMs;
@@ -187,11 +181,13 @@ const MonitoringInfoPanel: React.FC<Props> = ({
       );
       const histMs = latestHistoryMs(r);
       const updatedMs = Math.max(directMs, histMs);
-
       return {
         updatedMs,
         connected: connectedWithin(updatedMs, freshnessMinutes),
-        temp: (r as any).temperature ?? (r as any)?.data?.temperature ?? null,
+        temp:
+          (r as any).temperature ??
+          (r as any)?.data?.temperature ??
+          null,
         alert: !!(r as any).alert,
         warning: !!((r as any).warning && !(r as any).alert),
       };
@@ -201,21 +197,22 @@ const MonitoringInfoPanel: React.FC<Props> = ({
       (max, it) => (it.updatedMs > max ? it.updatedMs : max),
       0
     );
-    const latestAbs =
-      latestMs > 0
-        ? format(new Date(latestMs), "d LLL y, HH:mm:ss", { locale: es })
-        : "—";
-    const latestRel = latestMs > 0 ? timeAgo(latestMs) : "";
+    const latestAbs = latestMs
+      ? format(new Date(latestMs), "d LLL y, HH:mm:ss", { locale: es })
+      : "—";
+    const latestRel = latestMs ? timeAgo(latestMs) : "";
 
     const connected = list.filter((x) => x.connected).length;
     const disconnected = Math.max(0, list.length - connected);
 
+    // promedio solo con conectados (si no hay, usa todos)
     const pool = connected > 0 ? list.filter((x) => x.connected) : list;
     const temps = pool
       .map((x) => (x.temp == null ? null : Number(x.temp)))
       .filter((n): n is number => Number.isFinite(n));
-    const avg =
-      temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : null;
+    const avg = temps.length
+      ? temps.reduce((a, b) => a + b, 0) / temps.length
+      : null;
 
     const critical = list.filter((x) => x.alert).length;
     const warning = list.filter((x) => x.warning).length;
@@ -248,7 +245,7 @@ const MonitoringInfoPanel: React.FC<Props> = ({
       ].join(" ")}
       aria-label="Resumen del monitoreo"
     >
-      {/* ======= CABECERA RESUMIDA (móvil) ======= */}
+      {/* CABECERA (móvil) */}
       <div className="sm:hidden">
         <div className="flex items-center justify-between gap-2">
           <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700 text-[11px]">
@@ -257,7 +254,6 @@ const MonitoringInfoPanel: React.FC<Props> = ({
             <span className="text-gray-900">{latestAbs}</span>
             {latestRel && <span className="text-gray-400">({latestRel})</span>}
           </div>
-
           <button
             type="button"
             onClick={() => setCollapsed((v) => !v)}
@@ -277,7 +273,6 @@ const MonitoringInfoPanel: React.FC<Props> = ({
           </button>
         </div>
 
-        {/* KPIs compactos cuando está colapsado */}
         {collapsed && (
           <div className="mt-2 grid grid-cols-2 gap-2">
             <StatTile
@@ -312,13 +307,13 @@ const MonitoringInfoPanel: React.FC<Props> = ({
         )}
       </div>
 
-      {/* ======= DETALLE ======= */}
+      {/* DETALLE */}
       <div
         id="monitoring-detail"
         className={`mt-3 sm:mt-0 ${collapsed ? "hidden sm:block" : "block"}`}
       >
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 sm:gap-6">
-          {/* Columna 1: Última actualización + Tiles */}
+          {/* Columna 1 */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-700 text-xs">
@@ -369,7 +364,7 @@ const MonitoringInfoPanel: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Columna 2: Distribución por estado (píldoras) */}
+          {/* Columna 2: Distribución por estado */}
           <div className="flex flex-col gap-2">
             <p className="text-xs text-gray-500">Distribución por estado</p>
             <div className="flex flex-wrap gap-2">
@@ -394,15 +389,12 @@ const MonitoringInfoPanel: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Columna 3: Conexión (píldoras) + Total zonas */}
+          {/* Columna 3: Conexión + total */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <p className="text-xs text-gray-500">Conexión</p>
               <span className="text-xs text-gray-500">
-                Total zonas:{" "}
-                <span className="font-semibold text-gray-700">
-                  {totals.total}
-                </span>
+                Total zonas: <span className="font-semibold text-gray-700">{totals.total}</span>
               </span>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -423,7 +415,6 @@ const MonitoringInfoPanel: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Separador sutil */}
       <div className="mt-3 sm:mt-4 h-px w-full bg-gradient-to-r from-transparent via-gray-200 to-transparent" />
     </section>
   );

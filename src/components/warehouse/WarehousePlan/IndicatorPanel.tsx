@@ -1,22 +1,131 @@
-// src/components/warehouse/IndicatorPanel.tsx
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useState, useRef, useEffect, useContext, useMemo, useCallback } from "react";
+"use client";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useContext,
+  useMemo,
+} from "react";
 import RoomIndicator from "./RoomIndicator";
 import { type Room, type Measure } from "../../../types/types";
-import { ChevronDownIcon, ChevronUpIcon, MagnifyingGlassIcon, ArrowUturnLeftIcon } from "@heroicons/react/24/solid";
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  MagnifyingGlassIcon,
+  ArrowUturnLeftIcon,
+} from "@heroicons/react/24/solid";
 import { WeatherContext } from "../../../context/WeatherContext";
+import { SensorsContext } from "../../../context/SensorsContext";
 
+/* =========================
+   Props / tipos
+========================= */
 interface Props {
   rooms: Room[];
   isFloating?: boolean;
-  /** minutos para considerar “conectado” */
+  /** minutos para considerar “conectado” (solo para UI; la conexión real usa getSmartConnection) */
   freshnessMinutes?: number;
 }
-
 type SortKey = "estado" | "nombre" | "temp";
 
-const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMinutes = 5 }) => {
+/* =========================
+   Helpers de fechas
+========================= */
+const toMs = (v: any): number => {
+  if (!v && v !== 0) return 0;
+  if (v instanceof Date) return isNaN(v.getTime()) ? 0 : v.getTime();
+  if (typeof v === "number") {
+    const ms = v < 9_999_999_999 ? v * 1000 : v;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  if (typeof v === "string") {
+    const s = v.includes(" ") ? v.replace(" ", "T") : v;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  const d = new Date(v as any);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+};
+
+const formatAbsDate = (ms: number) =>
+  ms ? new Date(ms).toLocaleString("es-DO") : "—";
+
+const timeAgo = (ms: number) => {
+  if (!ms) return "—";
+  const diff = Math.max(0, Date.now() - ms);
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "ahora";
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r ? `${h}h ${r}m` : `${h}h`;
+};
+
+const normalizeDateISO = (value: any): string => {
+  const ms = toMs(value);
+  return ms ? new Date(ms).toISOString() : new Date().toISOString();
+};
+
+/* =========================
+   Resolución de histórico (coincide con el dashboard)
+========================= */
+type HistoryDict = Record<string, any[]>;
+
+const buildLooseIndex = (historyData: HistoryDict) => {
+  const index = new Map<string, string>();
+  for (const k of Object.keys(historyData || {})) {
+    index.set(String(k).toLowerCase(), k);
+  }
+  return index;
+};
+
+const pickHistory = (
+  sensor: any,
+  historyData: HistoryDict,
+  looseIndex: Map<string, string>
+) => {
+  const cands = [sensor?.devEUI, sensor?.name, sensor?.deviceName]
+    .map((x) => (x == null ? "" : String(x)))
+    .filter(Boolean);
+
+  // 1) exacto
+  for (const k of cands) if (historyData[k]) return historyData[k];
+
+  // 2) case-insensitive
+  for (const k of cands) {
+    const real = looseIndex.get(k.toLowerCase());
+    if (real && historyData[real]) return historyData[real];
+  }
+  return [];
+};
+
+const buildRoomHistory = (room: Room, historyData: HistoryDict, looseIndex: Map<string, string>): Measure[] => {
+  const rawList = pickHistory(room as any, historyData, looseIndex);
+  return rawList.map((m: any) => ({
+    timestamp: normalizeDateISO(
+      m.timestamp || m.created_at || m.time || m.date || m.updatedAt
+    ),
+    temperature: Number(
+      m.temperature ?? m.data?.temperature ?? m.temp ?? 0
+    ),
+    humedity: Number(
+      m.humedity ?? m.humidity ?? m.data?.humidity ?? 0
+    ),
+  }));
+};
+
+/* =========================
+   Componente
+========================= */
+const IndicatorPanel: React.FC<Props> = ({
+  rooms,
+  isFloating = true,
+}) => {
   const { historyData } = useContext(WeatherContext);
+  const { getSmartConnection } = useContext(SensorsContext);
 
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -29,126 +138,46 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
   const pos = useRef({ x: 0, y: 0, left: 16, top: 16 });
   const savedPos = useRef<{ left: number; top: number } | null>(null);
 
-  /* =========================
-     Tiempo / conectividad
-  ========================= */
-  const toMs = (v: any): number => {
-    if (!v) return 0;
-    const d =
-      typeof v === "number"
-        ? new Date(v < 9_999_999_999 ? v * 1000 : v)
-        : typeof v === "string"
-        ? new Date(v.includes(" ") ? v.replace(" ", "T") : v)
-        : new Date(v);
-    const ms = d.getTime();
-    return Number.isFinite(ms) ? ms : 0;
-  };
-
-  const isConnectedWithin = (updatedMs: number, minutes = freshnessMinutes) => {
-    if (!updatedMs) return false;
-    const GRACE_MS = 60 * 1000; // 1 min de gracia
-    return Date.now() - updatedMs <= minutes * 60 * 1000 + GRACE_MS;
-  };
-
-  const formatAbsDate = (ms: number) => (ms ? new Date(ms).toLocaleString("es-DO") : "—");
-
-  const timeAgo = (ms: number) => {
-    if (!ms) return "—";
-    const diff = Math.max(0, Date.now() - ms);
-    const m = Math.floor(diff / 60000);
-    if (m < 1) return "ahora";
-    if (m < 60) return `${m} min`;
-    const h = Math.floor(m / 60);
-    const r = m % 60;
-    return r ? `${h}h ${r}m` : `${h}h`;
-  };
-
   // refresco liviano de labels cada minuto
   useEffect(() => {
     const id = setInterval(() => setQuery((q) => q), 60_000);
     return () => clearInterval(id);
   }, []);
 
-  /* =========================
-     Histórico (normalización)
-  ========================= */
-  const normalizeDate = (value: any): string => {
-    if (!value) return new Date().toISOString();
-    if (typeof value === "number") {
-      const ms = value < 9_999_999_999 ? value * 1000 : value;
-      return new Date(ms).toISOString();
-    }
-    if (typeof value === "string") {
-      const s = value.includes(" ") ? value.replace(" ", "T") : value;
-      const d = new Date(s);
-      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-    }
-    const d = new Date(value);
-    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-  };
-
-  const buildRoomHistory = useCallback(
-    (room: Room): Measure[] => {
-      const keyByEui = (room as any).devEUI ?? null;
-      const keyByName = room.name ?? (room as any).deviceName ?? null;
-      const rawList: any[] =
-        (keyByEui && historyData?.[keyByEui]) ||
-        (keyByName && historyData?.[keyByName]) ||
-        [];
-
-      return rawList.map((m: any) => ({
-        timestamp: normalizeDate(
-          m.timestamp || m.created_at || m.time || m.date || m.updatedAt
-        ),
-        temperature: Number(m.temperature ?? (m.data?.temperature ?? 0)),
-        humedity: Number(m.humedity ?? m.humidity ?? m.data?.humidity ?? 0),
-        productivity: Number(m.productivity ?? 0),
-      }));
-    },
-    [historyData]
-  );
-
-  /** último timestamp del histórico para un room */
-  const latestHistoryMs = useCallback(
-    (room: Room): number => {
-      const keyByEui = (room as any).devEUI ?? null;
-      const keyByName = room.name ?? (room as any).deviceName ?? null;
-      const list: any[] =
-        (keyByEui && historyData?.[keyByEui]) ||
-        (keyByName && historyData?.[keyByName]) ||
-        [];
-      if (!Array.isArray(list) || list.length === 0) return 0;
-
-      let maxMs = 0;
-      for (const m of list) {
-        const ms = toMs(m.timestamp || m.created_at || m.time || m.date || m.updatedAt);
-        if (ms > maxMs) maxMs = ms;
-      }
-      return maxMs;
-    },
+  const looseIndex = useMemo(
+    () => buildLooseIndex((historyData ?? {}) as HistoryDict),
     [historyData]
   );
 
   /* =========================
-     Enriquecimiento de filas
+     Enriquecimiento de filas (USANDO CONTEXT)
   ========================= */
   const enriched = useMemo(() => {
-    return (rooms ?? []).map((r, idx) => {
-      // 1) directo
-      const directMs = toMs((r as any).updatedAt ?? (r as any).lastSeen ?? (r as any).timestamp);
-      // 2) del histórico
-      const histMs = latestHistoryMs(r);
-      // 3) mejor de ambos
-      const updatedMs = Math.max(directMs, histMs);
-      const connected = isConnectedWithin(updatedMs, freshnessMinutes);
+    const list = (rooms ?? []).map((r, idx) => {
+      const hist = pickHistory(r as any, (historyData ?? {}) as HistoryDict, looseIndex);
+      const conn = getSmartConnection(r, hist as any[]);
 
+      // último timestamp mostrado/tooltip
+      const lastRaw =
+        hist.length
+          ? hist[hist.length - 1]?.timestamp ??
+            hist[hist.length - 1]?.created_at ??
+            hist[hist.length - 1]?.updatedAt ??
+            hist[hist.length - 1]?.date
+          : (r as any).updatedAt ?? (r as any).lastSeen ?? (r as any).timestamp ?? (r as any).date;
+
+      const updatedMs = toMs(lastRaw);
       const temperature =
-        r.temperature ?? (r as any)?.data?.temperature ?? null;
+        typeof (r as any).temperature === "number"
+          ? Number((r as any).temperature.toFixed(1))
+          : (r as any)?.data?.temperature ?? null;
       const humedity =
-        (r as any).humedity ?? (r as any).humidity ?? (r as any)?.data?.humidity ?? null;
-      const productivity = (r as any).productivity ?? null;
+        typeof ((r as any).humedity ?? (r as any).humidity) === "number"
+          ? Number(((r as any).humedity ?? (r as any).humidity).toFixed(1))
+          : (r as any)?.data?.humidity ?? null;
 
-      const deviceName = (r as any).deviceName || r.name || `Zona ${r.id ?? idx + 1}`;
+      const deviceName =
+        (r as any).deviceName || r.name || `Zona ${((r as any).id ?? idx) + 1}`;
       const uid = (r as any).devEUI ?? (r as any).deviceName ?? null;
 
       return {
@@ -158,26 +187,25 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
         _updatedMs: updatedMs,
         _updatedAbs: formatAbsDate(updatedMs),
         _updatedAgo: timeAgo(updatedMs),
-        _connected: connected,
-        temperature: typeof temperature === "number" ? Number(temperature.toFixed(1)) : null,
-        humedity: typeof humedity === "number" ? Number(humedity.toFixed(1)) : null,
-        productivity: typeof productivity === "number" ? Math.round(productivity) : null,
+        _connected: !!conn.isConnected,
+        temperature: typeof temperature === "number" ? temperature : null,
+        humedity: typeof humedity === "number" ? humedity : null,
       };
     });
-    // Recalcular cuando llegue nuevo histórico
-  }, [rooms, freshnessMinutes, latestHistoryMs]);
+    return list;
+  }, [rooms, historyData, getSmartConnection, looseIndex]);
 
   /* =========================
      Filtro + orden
   ========================= */
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let rows = !q
+    const ql = query.trim().toLowerCase();
+    let rows = !ql
       ? enriched
       : enriched.filter(
           (r: any) =>
-            r._displayName?.toLowerCase().includes(q) ||
-            r._uid?.toLowerCase?.().includes(q)
+            r._displayName?.toLowerCase().includes(ql) ||
+            r._uid?.toLowerCase?.().includes(ql)
         );
 
     rows = [...rows].sort((a: any, b: any) => {
@@ -185,13 +213,17 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
         case "nombre":
           return (a._displayName || "").localeCompare(b._displayName || "");
         case "temp":
-          return (Number(b.temperature ?? -Infinity) - Number(a.temperature ?? -Infinity));
+          return (
+            Number(b.temperature ?? -Infinity) - Number(a.temperature ?? -Infinity)
+          );
         case "estado": {
-          // conectados primero, luego por criticidad
-          const score = (r: any) =>
-            (r._connected ? 100 : 0) + (r.alert ? 10 : r.warning ? 5 : 0);
-          return score(b) - score(a);
+          // conectados primero (si empatan, el más reciente primero)
+          const sa = (a._connected ? 1 : 0) * 100 + (a._updatedMs || 0);
+          const sb = (b._connected ? 1 : 0) * 100 + (b._updatedMs || 0);
+          return sb - sa;
         }
+        default:
+          return 0;
       }
     });
 
@@ -207,7 +239,6 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
       panelRef.current.style.top = `${savedPos.current.top}px`;
     }
   }, []);
-
   const startDragMouse = (e: React.MouseEvent) => {
     if (!panelRef.current || !isFloating) return;
     dragging.current = true;
@@ -219,7 +250,6 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
     };
     panelRef.current.style.cursor = "grabbing";
   };
-
   const startDragTouch = (e: React.TouchEvent) => {
     if (!panelRef.current || !isFloating) return;
     const t = e.touches[0];
@@ -231,18 +261,16 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
       top: panelRef.current.offsetTop,
     };
   };
-
   useEffect(() => {
     const move = (clientX: number, clientY: number) => {
       if (!dragging.current || !panelRef.current || !isFloating) return;
-
       const dx = clientX - pos.current.x;
       const dy = clientY - pos.current.y;
-
       const newLeft = pos.current.left + dx;
       const newTop = pos.current.top + dy;
 
-      const parent = (panelRef.current.offsetParent as HTMLElement) || document.body;
+      const parent =
+        (panelRef.current.offsetParent as HTMLElement) || document.body;
       const panelRect = panelRef.current.getBoundingClientRect();
       const parentRect = parent.getBoundingClientRect();
 
@@ -262,7 +290,6 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
       dragging.current = false;
       if (panelRef.current) panelRef.current.style.cursor = "grab";
     };
-
     const onTouchMove = (e: TouchEvent) => {
       const t = e.touches[0];
       move(t.clientX, t.clientY);
@@ -288,8 +315,12 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
   return (
     <div
       ref={panelRef}
-      className={`z-30 ${isFloating ? "absolute top-4 left-4 right-4 sm:right-auto" : "relative mt-2"
-        } w-full sm:w-[92vw] md:w-[520px] max-w-md bg-white shadow-xl rounded-lg border border-gray-200 overflow-hidden transition-all`}
+      className={[
+        "z-30",
+        isFloating ? "absolute top-4 left-4 right-4 sm:right-auto" : "relative mt-2",
+        "w-full sm:w-[92vw] md:w-[520px] max-w-md",
+        "bg-white shadow-xl rounded-lg border border-gray-200 overflow-hidden transition-all",
+      ].join(" ")}
       style={{ touchAction: "none", cursor: isFloating ? "grab" : "auto" }}
     >
       {/* HEADER */}
@@ -314,13 +345,16 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
             "Indicadores por Zona"
           )}
         </h3>
-
         <button
           onClick={() => setIsMinimized(!isMinimized)}
           className="text-gray-500 hover:text-gray-700"
           aria-label={isMinimized ? "Expandir panel" : "Minimizar panel"}
         >
-          {isMinimized ? <ChevronUpIcon className="w-5 h-5" /> : <ChevronDownIcon className="w-5 h-5" />}
+          {isMinimized ? (
+            <ChevronUpIcon className="w-5 h-5" />
+          ) : (
+            <ChevronDownIcon className="w-5 h-5" />
+          )}
         </button>
       </div>
 
@@ -353,24 +387,24 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
       {!isMinimized && (
         <div className="p-3 sm:p-4 overflow-y-auto max-h-[calc(80vh-48px)]">
           {selectedRoom ? (
-            <RoomIndicator room={{ ...selectedRoom, history: buildRoomHistory(selectedRoom) }} mode="detail" />
+            <RoomIndicator
+              room={{
+                ...selectedRoom,
+                history: buildRoomHistory(
+                  selectedRoom,
+                  (historyData ?? {}) as HistoryDict,
+                  looseIndex
+                ),
+              }}
+              mode="detail"
+            />
           ) : (
             <ul className="space-y-3 text-sm text-gray-700">
               {filtered.map((room: any, idx: number) => {
-                const statusTone = room.alert
-                  ? "text-red-600"
-                  : room.warning
-                  ? "text-yellow-600"
-                  : room._connected
+                const statusTone = room._connected
                   ? "text-green-600"
                   : "text-gray-500";
-                const statusText = room.alert
-                  ? "Crítico"
-                  : room.warning
-                  ? "Advertencia"
-                  : room._connected
-                  ? "Conectado"
-                  : "Desconectado";
+                const statusText = room._connected ? "Conectado" : "Desconectado";
 
                 return (
                   <li
@@ -379,12 +413,13 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="font-semibold text-gray-900 truncate">{room._displayName}</div>
+                        <div className="font-semibold text-gray-900 truncate">
+                          {room._displayName}
+                        </div>
                         <div className="text-xs text-gray-500 truncate">
                           {room._uid ? `UID: ${room._uid}` : "UID no disponible"}
                         </div>
                       </div>
-
                       <button
                         onClick={() => setSelectedRoom(room)}
                         className="text-xs text-blue-600 hover:text-blue-700 font-medium shrink-0"
@@ -396,7 +431,9 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
                     <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                       <div className="text-gray-600">
                         <span className="text-gray-500">Conexión: </span>
-                        <span className={`font-semibold ${statusTone}`}>{statusText}</span>
+                        <span className={`font-semibold ${statusTone}`}>
+                          {statusText}
+                        </span>
                       </div>
                       <div className="text-gray-600">
                         <span className="text-gray-500">Últ. act.: </span>
@@ -422,9 +459,10 @@ const IndicatorPanel: React.FC<Props> = ({ rooms, isFloating = true, freshnessMi
                   </li>
                 );
               })}
-
               {filtered.length === 0 && (
-                <div className="text-center text-gray-400 text-sm py-6">Sin resultados</div>
+                <div className="text-center text-gray-400 text-sm py-6">
+                  Sin resultados
+                </div>
               )}
             </ul>
           )}
