@@ -156,6 +156,9 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
   const { getSmartConnection } = useContext(SensorsContext);
   const isNarrow = useIsNarrow();
 
+  // Altura más generosa en mobile
+  const chartHeight = isNarrow ? 520 : 420;
+
   const looseIndex = useMemo(() => buildLooseIndex(historyData || {}), [historyData]);
 
   const enriched = useMemo(() => {
@@ -303,11 +306,12 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        {/* Chips con scroll horizontal en mobile */}
+        <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1 pr-1">
           {enriched.map((r, i) => (
             <span
               key={`legend-chip-${r.key}-${i}`}
-              className="inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs bg-white"
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs bg-white"
               title={r.zone}
             >
               <span
@@ -352,99 +356,108 @@ const TemperatureEffectivenessChartRecharts: React.FC<TemperatureEffectivenessCh
         )}
       </div>
 
-      <div className="relative w-full h-[360px] sm:h-[400px] md:h-[440px]">
+      {/* Altura responsiva */}
+      <div className="relative w-full" style={{ height: chartHeight }}>
         {loading ? (
           <div className="h-full w-full animate-pulse">
             <div className="h-5 w-1/3 bg-gray-100 rounded mb-3" />
             <div className="h-[85%] bg-gray-50 rounded" />
           </div>
         ) : hasData ? (
-          <>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={enriched}
-                margin={{ top: 10, right: 16, left: 8, bottom: isNarrow ? 58 : 36 }}
-                barGap={10}
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={enriched}
+              // más espacio para etiquetas X en mobile
+              margin={{ top: 10, right: 16, left: 8, bottom: isNarrow ? 88 : 36 }}
+              barGap={10}
+            >
+              <defs>
+                {gradients.map((g) => (
+                  <linearGradient key={g.id} id={g.id} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={g.color} stopOpacity={0.95} />
+                    <stop offset="100%" stopColor={g.color} stopOpacity={0.7} />
+                  </linearGradient>
+                ))}
+                <pattern id="diag-offline" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+                  <rect width="6" height="6" fill="#E5E7EB" />
+                  <line x1="0" y1="0" x2="0" y2="6" stroke="#9CA3AF" strokeWidth="2" />
+                </pattern>
+              </defs>
+
+              {/* Zona verde de operación ideal */}
+              <ReferenceArea y1={minLimit} y2={maxLimit} fill="#22C55E" fillOpacity={0.12} />
+
+              <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
+              <XAxis
+                dataKey="zone"
+                interval={0}
+                height={isNarrow ? 72 : 36}
+                tick={{ fontSize: 12, fill: "#6b7280", fontFamily: "Inter, system-ui, sans-serif" }}
+                angle={isNarrow ? -26 : 0}
+                textAnchor={isNarrow ? "end" : "middle"}
+                tickFormatter={(v: string) => ellipsize(v, isNarrow ? 16 : 20)}
+              />
+              <YAxis
+                domain={[Math.min(-40, minLimit - 10), Math.max(80, maxLimit + 10)]}
+                tick={{ fontSize: 11, fill: "#6b7280" }}
+                tickFormatter={(v) => `${v}°C`}
+                axisLine={false}
+              />
+
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+
+              {Number.isFinite(globalAvg) && (
+                <ReferenceLine
+                  y={globalAvg}
+                  stroke="#3B82F6"
+                  strokeDasharray="4 3"
+                  label={{
+                    value: `Promedio ${globalAvg.toFixed(1)}°C`,
+                    position: "right",
+                    fill: "#3B82F6",
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                />
+              )}
+
+              {/* Legend como contenedor de la leyenda custom */}
+              <Legend verticalAlign="top" align="left" content={<CustomLegend />} />
+
+              <Bar
+                dataKey="avgTemp"
+                name="Promedio de Temperatura"
+                radius={[8, 8, 0, 0]}
+                maxBarSize={72}
+                onClick={(d: any) => onBarClick?.({ zone: d?.zone, avgTemp: d?.avgTemp })}
+                isAnimationActive
+                animationDuration={700}
               >
-                <defs>
-                  {gradients.map((g) => (
-                    <linearGradient key={g.id} id={g.id} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={g.color} stopOpacity={0.95} />
-                      <stop offset="100%" stopColor={g.color} stopOpacity={0.7} />
-                    </linearGradient>
-                  ))}
-                  <pattern id="diag-offline" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
-                    <rect width="6" height="6" fill="#E5E7EB" />
-                    <line x1="0" y1="0" x2="0" y2="6" stroke="#9CA3AF" strokeWidth="2" />
-                  </pattern>
-                </defs>
-
-                {/* Zona verde de operación ideal */}
-                <ReferenceArea y1={minLimit} y2={maxLimit} fill="#22C55E" fillOpacity={0.12} />
-
-                <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="zone"
-                  interval={0}
-                  height={isNarrow ? 58 : 36}
-                  tick={{ fontSize: 12, fill: "#6b7280", fontFamily: "Inter, system-ui, sans-serif" }}
-                  angle={isNarrow ? -22 : 0}
-                  textAnchor={isNarrow ? "end" : "middle"}
-                  tickFormatter={(v: string) => ellipsize(v, isNarrow ? 14 : 20)}
-                />
-                <YAxis
-                  domain={[Math.min(-40, minLimit - 10), Math.max(80, maxLimit + 10)]}
-                  tick={{ fontSize: 11, fill: "#6b7280" }}
-                  tickFormatter={(v) => `${v}°C`}
-                  axisLine={false}
-                />
-
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
-
-                {Number.isFinite(globalAvg) && (
-                  <ReferenceLine
-                    y={globalAvg}
-                    stroke="#3B82F6"
-                    strokeDasharray="4 3"
-                    label={{
-                      value: `Promedio ${globalAvg.toFixed(1)}°C`,
-                      position: "right",
-                      fill: "#3B82F6",
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                  />
-                )}
-
-                {/* Usamos Legend solo como contenedor para nuestro contenido custom */}
-                <Legend verticalAlign="top" align="left" content={<CustomLegend />} />
-
-                <Bar
+                {/* Etiqueta de valor en la parte superior */}
+                <LabelList
                   dataKey="avgTemp"
-                  name="Promedio de Temperatura"
-                  radius={[8, 8, 0, 0]}
-                  maxBarSize={72}
-                  onClick={(d: any) => onBarClick?.({ zone: d?.zone, avgTemp: d?.avgTemp })}
-                  isAnimationActive
-                  animationDuration={700}
-                >
-                  <LabelList dataKey="labelText" position="top" />
-                  {enriched.map((row, i) => (
-                    <Cell
-                      key={`cell-${row.key}-${i}`}
-                      fill={row.isConnected ? `url(#grad-te-${i})` : "url(#diag-offline)"}
-                      stroke={row.isConnected ? row.color : "#9CA3AF"}
-                      strokeWidth={row.isConnected ? 0 : 1}
-                      cursor={onBarClick ? "pointer" : "default"}
-                    />
-                  ))}
-                </Bar>
-
-              </BarChart>
-            </ResponsiveContainer>
-          </>
+                  position="top"
+                  formatter={(value: any) => {
+                    const num = Number(value ?? NaN);
+                    return Number.isFinite(num) ? `${num.toFixed(1)}°` : "—";
+                  }}
+                />
+                {enriched.map((row, i) => (
+                  <Cell
+                    key={`cell-${row.key}-${i}`}
+                    fill={row.isConnected ? `url(#grad-te-${i})` : "url(#diag-offline)"}
+                    stroke={row.isConnected ? row.color : "#9CA3AF"}
+                    strokeWidth={row.isConnected ? 0 : 1}
+                    cursor={onBarClick ? "pointer" : "default"}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-400">Sin datos disponibles</div>
+          <div className="flex items-center justify-center h-full text-gray-400">
+            Sin datos disponibles
+          </div>
         )}
       </div>
     </div>
