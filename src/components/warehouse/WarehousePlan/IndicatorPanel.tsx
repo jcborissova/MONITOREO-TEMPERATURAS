@@ -317,9 +317,13 @@ const IndicatorPanel: React.FC<Props> = ({
       ref={panelRef}
       className={[
         "z-30",
+        // posición
         isFloating ? "absolute top-4 left-4 right-4 sm:right-auto" : "relative mt-2",
+        // layout + alturas: el truco del scroll está aquí
         "w-full sm:w-[92vw] md:w-[520px] max-w-md",
         "bg-white shadow-xl rounded-lg border border-gray-200 overflow-hidden transition-all",
+        "flex flex-col",                   // contenedor flex vertical
+        "max-h-[80vh]",                   // altura máxima del panel
       ].join(" ")}
       style={{ touchAction: "none", cursor: isFloating ? "grab" : "auto" }}
     >
@@ -327,7 +331,7 @@ const IndicatorPanel: React.FC<Props> = ({
       <div
         onMouseDown={startDragMouse}
         onTouchStart={startDragTouch}
-        className="flex items-center gap-2 justify-between px-3 sm:px-4 py-2.5 bg-gray-100 border-b border-gray-200"
+        className="flex items-center gap-2 justify-between px-3 sm:px-4 py-2.5 bg-gray-100 border-b border-gray-200 shrink-0"
       >
         <h3 className="font-bold text-gray-800 text-sm sm:text-[15px] truncate">
           {selectedRoom ? (
@@ -358,9 +362,9 @@ const IndicatorPanel: React.FC<Props> = ({
         </button>
       </div>
 
-      {/* CONTROLES */}
+      {/* CONTROLES (no hacen scroll) */}
       {!selectedRoom && !isMinimized && (
-        <div className="px-3 sm:px-4 pt-2 flex items-center gap-2">
+        <div className="px-3 sm:px-4 pt-2 flex items-center gap-2 shrink-0">
           <div className="relative flex-1">
             <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-2 top-2.5" />
             <input
@@ -383,9 +387,9 @@ const IndicatorPanel: React.FC<Props> = ({
         </div>
       )}
 
-      {/* CONTENIDO */}
+      {/* CONTENIDO (sí hace scroll) */}
       {!isMinimized && (
-        <div className="p-3 sm:p-4 overflow-y-auto max-h-[calc(80vh-48px)]">
+        <div className="p-3 sm:p-4 flex-1 min-h-0 overflow-y-auto">
           {selectedRoom ? (
             <RoomIndicator
               room={{

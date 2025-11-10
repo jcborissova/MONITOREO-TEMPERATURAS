@@ -14,7 +14,7 @@ import ResponsiveTable from "../components/ui/ResponsiveTable";
 import NotificationDetailModal from "../components/notifications/NotificationDetailModal";
 import { useNotifications, useSensors, usePendingMap } from "../hooks/useNotifications";
 import type { Notification } from "../utils/notifications";
-import { ArrowPathIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, BellAlertIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { FunnelIcon } from "@heroicons/react/24/solid";
 
 /* =========================
@@ -66,6 +66,28 @@ const useCompact = () => {
     return () => mq.removeEventListener?.("change", on);
   }, []);
   return match;
+};
+
+/* =========================
+   Ayudas de filtros
+========================= */
+const hasActiveFilters = ({
+  search,
+  sensor,
+  kind,
+  read,
+}: {
+  search: string;
+  sensor: string;
+  kind: "all" | Notification["kind"];
+  read: "all" | "read" | "unread";
+}) => {
+  return (
+    (search && search.trim().length > 0) ||
+    !!sensor ||
+    kind !== "all" ||
+    read !== "all"
+  );
 };
 
 /* =========================
@@ -124,24 +146,48 @@ const SkeletonTable = () => (
   </div>
 );
 
-const EmptyState = ({ onRetry }: { onRetry: () => void }) => (
-  <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-10 text-center">
-    <div className="mx-auto w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center mb-4">
-      <ArrowPathIcon className="w-8 h-8 text-blue-600" />
+/** EmptyState mejorado */
+const EmptyState = ({
+  onRetry,
+  onClearAll,
+  onShowAll,
+  showClear,
+}: {
+  onRetry: () => void;
+  onClearAll: () => void;
+  onShowAll: () => void;
+  showClear: boolean;
+}) => (
+  <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-10 text-center">
+    <div className="mx-auto w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center mb-5 ring-1 ring-blue-100">
+      <BellAlertIcon className="w-9 h-9 text-blue-600" />
     </div>
-    <h3 className="text-lg font-semibold text-gray-800">No se encontraron notificaciones</h3>
+    <h3 className="text-xl font-semibold text-gray-900">Sin notificaciones por ahora</h3>
     <p className="text-sm text-gray-500 mt-1">
-      Ajusta los filtros o intenta volver a cargar para ver actualizaciones recientes.
+      No encontramos resultados con los filtros actuales. Puedes ajustar los filtros, mostrar todas o recargar.
     </p>
-    <div className="mt-5">
+
+    <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-2">
       <Button onClick={onRetry}>
         <ArrowPathIcon className="w-4 h-4" />
-        Reintentar
+        Refrescar
       </Button>
+      <Button onClick={onShowAll}>
+        <FunnelIcon className="w-4 h-4" />
+        Ver todas
+      </Button>
+      {showClear && (
+        <Button onClick={onClearAll} className="!text-gray-700 !bg-gray-50 hover:!bg-gray-100">
+          <XMarkIcon className="w-4 h-4" />
+          Limpiar filtros
+        </Button>
+      )}
     </div>
-    <p className="text-xs text-gray-400 mt-3">
-      Tip: filtra por sensor, tipo o estado; también puedes limpiar la búsqueda.
-    </p>
+
+    <div className="mt-5 text-xs text-gray-400 space-y-1">
+      <p>Tip: filtra por sensor, tipo o estado; también puedes limpiar la búsqueda.</p>
+      <p>Las nuevas alertas aparecerán aquí automáticamente al actualizar.</p>
+    </div>
   </div>
 );
 
@@ -347,6 +393,22 @@ const NotificationsPage: React.FC = () => {
     </div>
   );
 
+  /** Helpers para reset */
+  const clearAllFilters = useCallback(() => {
+    setSearch("");
+    setSensor("");
+    setKind("all");
+    setRead("all");
+  }, []);
+  const showAll = useCallback(() => {
+    setSensor("");
+    setKind("all");
+    setRead("all");
+    setSearch("");
+  }, []);
+
+  const filtersActive = hasActiveFilters({ search, sensor, kind, read });
+
   return (
     <PageContainer
       title="Notificaciones"
@@ -446,7 +508,14 @@ const NotificationsPage: React.FC = () => {
             </>
           )}
 
-          {!loading && visible.length === 0 && <EmptyState onRetry={handleReload} />}
+          {!loading && visible.length === 0 && (
+            <EmptyState
+              onRetry={handleReload}
+              onClearAll={clearAllFilters}
+              onShowAll={showAll}
+              showClear={filtersActive}
+            />
+          )}
 
           {visible.map((row) => {
             const isPending = !!pendingMap[row.id];
@@ -469,11 +538,17 @@ const NotificationsPage: React.FC = () => {
         <div className="min-w-0 max-w-full overflow-x-auto">
           {loading ? (
             <SkeletonTable />
+          ) : visible.length === 0 ? (
+            <EmptyState
+              onRetry={handleReload}
+              onClearAll={clearAllFilters}
+              onShowAll={showAll}
+              showClear={filtersActive}
+            />
           ) : (
             <ResponsiveTable
               title="Listado de Notificaciones"
               data={visible} // solo lo visible
-              emptyMessage="No se encontraron notificaciones."
               showExport
               onActionClick={(action, row) => {
                 if (action === "details") handleOpen(row as Notification);

@@ -19,7 +19,6 @@ const WarehousePlanModal: React.FC = () => {
 
   /* =========================
      UX: cerrar con ESC y bloquear scroll fondo
-     (estos hooks se declaran SIEMPRE, no condicionalmente)
   ========================= */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -27,7 +26,6 @@ const WarehousePlanModal: React.FC = () => {
     };
     document.addEventListener("keydown", onKey);
 
-    // bloquear scroll del body mientras el modal esté abierto
     const prevOverflow = document.body.style.overflow;
     if (isModalOpen) document.body.style.overflow = "hidden";
 
@@ -93,26 +91,30 @@ const WarehousePlanModal: React.FC = () => {
           {/* MAIN */}
           <div className="flex-grow bg-gray-50 relative overflow-hidden">
             <div className="w-full h-full overflow-auto p-2 sm:p-4 space-y-4">
+              {/* Contenedor relativo del mapa: AQUÍ adentro va también el indicador */}
               <div className="relative w-full h-[320px] sm:h-[68vh] md:h-[70vh] lg:h-[72vh]">
+                {/* Mapa / Zonas */}
                 <MapOverlay
                   rooms={climateData?.rooms || []}
-                  activeBoxPct={{ x: 5, y: 6, width: 90, height: 87 }} // ajusta a tu SVG
+                  activeBoxPct={{ x: 5, y: 6, width: 90, height: 87 }}
                   debugActiveBox={false}
                 />
-                              </div>
 
-              {/* Móvil: panel embebido */}
+                {/* Escritorio: Indicador flotante y DRAGGABLE dentro de los límites del mapa */}
+                <div className="hidden sm:block">
+                  {/* NO envolver en otro contenedor posicionado: 
+                      el IndicatorPanel ya es absolute y usa su offsetParent (este div relativo) para el drag */}
+                  <IndicatorPanel rooms={climateData?.rooms || []} />
+                </div>
+              </div>
+
+              {/* Móvil: panel embebido (sin flotante) */}
               <div className="sm:hidden">
                 <IndicatorPanel rooms={climateData?.rooms || []} isFloating={false} />
               </div>
             </div>
 
-            {/* Escritorio: panel flotante sobre el mapa */}
-            <div className="hidden sm:block pointer-events-none">
-              <div className="absolute top-4 left-4 pointer-events-auto">
-                <IndicatorPanel rooms={climateData?.rooms || []} />
-              </div>
-            </div>
+            {/* (El wrapper extra con pointer-events fue removido para no romper el offsetParent del drag) */}
           </div>
 
           {/* FOOTER */}
