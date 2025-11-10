@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface Measure {
-  timestamp: string;      // <-- clave obligatoria
+  timestamp: string; 
   temperature: number;
   humedity?: number;
-  productivity?: number;  // podemos mapear 'power' aquí
+  productivity?: number;
 }
 
 export interface Room {
@@ -16,7 +16,7 @@ export interface Room {
   temperature: number;
   humedity?: number;
   productivity?: number;
-  updatedAt: string;      // <-- obligatoria
+  updatedAt: string;
   history?: Measure[];
   lat?: number;
   lng?: number;

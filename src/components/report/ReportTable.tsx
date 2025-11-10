@@ -31,7 +31,19 @@ const parseToDate = (rec: any): string => {
   });
 };
 
-const ReportTable: React.FC<{ data: ReportRow[] }> = ({ data }) => {
+/* ================================
+   NUEVO: tipos para customRenderers
+================================== */
+type CellRenderer = (value: any, row: ReportRow) => React.ReactNode;
+type CustomRenderers = Partial<Record<keyof ReportRow, CellRenderer>>;
+
+interface ReportTableProps {
+  data: ReportRow[];
+  /** Renderizadores opcionales por columna (ej: { Zona: (v,row)=>... }) */
+  customRenderers?: CustomRenderers;
+}
+
+const ReportTable: React.FC<ReportTableProps> = ({ data, customRenderers }) => {
   return (
     <ResponsiveTable
       title="Promedios por Zona"
@@ -40,18 +52,34 @@ const ReportTable: React.FC<{ data: ReportRow[] }> = ({ data }) => {
       emptyMessage="No hay datos disponibles para el rango seleccionado."
       showExport
       columns={[
-        { key: "Zona", label: "Zona" },
+        {
+          key: "Zona",
+          label: "Zona",
+          // ⚠️ casteo a any para ser compatible tanto si ResponsiveTable
+          // espera (value) como si pasa (value, row)
+          render: ((v: any, row: ReportRow) =>
+            customRenderers?.Zona ? (
+              customRenderers.Zona(v, row)
+            ) : (
+              <div className="leading-tight">
+                <div className="font-medium text-gray-900">{v}</div>
+                {row.__zoneCode && (
+                  <div className="text-[11px] text-gray-500">{row.__zoneCode}</div>
+                )}
+              </div>
+            )) as any,
+        },
         {
           key: "Promedio Temperatura (°C)",
           label: "Prom. Temp (°C)",
           align: "right",
-          render: (v) => <span className="text-blue-700">{v}</span>,
+          render: (v: any) => <span className="text-blue-700">{v}</span>,
         },
         {
           key: "Promedio Humedad (%)",
           label: "Prom. Humedad (%)",
           align: "right",
-          render: (v) => <span className="text-green-700">{v}</span>,
+          render: (v: any) => <span className="text-green-700">{v}</span>,
         },
         { key: "Temp Mín (°C)", label: "Mín Temp", align: "right" },
         { key: "Temp Máx (°C)", label: "Máx Temp", align: "right" },
@@ -59,13 +87,17 @@ const ReportTable: React.FC<{ data: ReportRow[] }> = ({ data }) => {
           key: "Total Registros",
           label: "Registros",
           align: "center",
-          render: (v) => <span className="font-medium text-gray-600">{v}</span>,
+          render: (v: any) => <span className="font-medium text-gray-600">{v}</span>,
         },
       ]}
       expandedRender={(row: ReportRow) => {
         const history = Array.isArray(row.__history) ? row.__history : [];
         if (!history.length)
-          return <div className="text-gray-500 text-sm">No hay histórico disponible para esta zona.</div>;
+          return (
+            <div className="text-gray-500 text-sm">
+              No hay histórico disponible para esta zona.
+            </div>
+          );
 
         return (
           <div>
@@ -87,7 +119,9 @@ const ReportTable: React.FC<{ data: ReportRow[] }> = ({ data }) => {
                   {history.map((m: any, idx: number) => (
                     <tr key={idx} className="border-top border-gray-100 hover:bg-gray-50">
                       <td className="py-2 px-3 text-gray-700">{parseToDate(m)}</td>
-                      <td className="py-2 px-3 text-right text-blue-700">{fmtNum(m.temperature, 2)}</td>
+                      <td className="py-2 px-3 text-right text-blue-700">
+                        {fmtNum(m.temperature, 2)}
+                      </td>
                       <td className="py-2 px-3 text-right text-green-700">
                         {fmtNum((m as any).humedity ?? (m as any).humidity ?? (m as any).hum, 1)}
                       </td>

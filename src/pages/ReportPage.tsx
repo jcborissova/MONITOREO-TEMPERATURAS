@@ -1,8 +1,18 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable no-empty */
 /* eslint-disable prefer-const */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CalendarIcon,
+  ArrowRightIcon,
+  ExclamationTriangleIcon,
+  MagnifyingGlassIcon,
+  ArrowPathIcon,
+  FunnelIcon,
+  InboxIcon,
+} from "@heroicons/react/24/outline";
 import { WeatherContext } from "../context/WeatherContext";
 import PageContainer from "../components/layout/PageContainer";
 import ExportButton from "../components/report/ExportButton";
@@ -13,7 +23,7 @@ import type { Measure } from "../types/types";
    Tipos
 ========================= */
 export type ReportRow = {
-  Zona: string;
+  Zona: string;                 // Nombre amigable de la zona
   "Promedio Temperatura (°C)": string | number;
   "Promedio Humedad (%)": string | number;
   "Temp Mín (°C)": string | number;
@@ -22,12 +32,14 @@ export type ReportRow = {
   "Hum. Máx (%)": string | number;
   "Último Registro": string;
   "Total Registros": number;
+  __zoneCode?: string;          // devEUI / key
   __history?: Measure[];
 };
+
 type QuickRange = "today" | "7d" | "30d" | "month" | "custom";
 
 /* =========================
-   Helpers de fechas
+   Helpers de fechas (local)
 ========================= */
 const fromYMDLocal = (ymd: string) => {
   const [y, m, d] = ymd.split("-").map(Number);
@@ -47,16 +59,16 @@ const endOfDayLocal = (ymd: string) => {
 };
 const normalizeRange = (start: string, end: string) => {
   const today = new Date();
-  const s = fromYMDLocal(start);
-  let e = fromYMDLocal(end);
-  if (isNaN(s.getTime()) || isNaN(e.getTime())) {
+  const startDate = fromYMDLocal(start);
+  let endDate = fromYMDLocal(end);
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
     const t = new Date();
-    const w = new Date(t.getTime() - 7 * 24 * 3600 * 1000);
-    return { start: toYMD(w), end: toYMD(t) };
+    const weekAgo = new Date(t.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return { start: toYMD(weekAgo), end: toYMD(t) };
   }
-  if (e < s) e = s;
-  if (e > today) e = today;
-  return { start: toYMD(s), end: toYMD(e) };
+  if (endDate < startDate) endDate = startDate;
+  if (endDate > today) endDate = today;
+  return { start: toYMD(startDate), end: toYMD(endDate) };
 };
 const parseTs = (rec: any): number => {
   const ts = rec?.timestamp ?? rec?.created_at ?? rec?.time ?? rec?.date ?? rec?.updatedAt ?? null;
@@ -72,37 +84,38 @@ const parseTs = (rec: any): number => {
 };
 
 /* =========================
-   Página (súper simple)
+   Página
 ========================= */
 const ReportPage: React.FC = () => {
-  const { historyData, refreshData } = useContext(WeatherContext);
+  // ⬇️ Trae sensors para resolver el nombre desde el contexto
+  const { historyData, sensors, refreshData } = useContext(WeatherContext);
 
+  // Mapa devEUI|name -> name visible
+  const nameByKey = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const s of sensors ?? []) {
+      const key = s.devEUI ?? s.name; // misma clave que usa historyData
+      if (key) map[key] = s.name;
+    }
+    return map;
+  }, [sensors]);
+
+  // Defaults
   const today = new Date();
   const todayStr = toYMD(today);
-  const weekAgo = new Date(today.getTime() - 7 * 24 * 3600 * 1000);
+  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
   const weekAgoStr = toYMD(weekAgo);
 
   const [dateRange, setDateRange] = useState({ start: weekAgoStr, end: todayStr });
+  const [rangeError, setRangeError] = useState<string | null>(null);
   const [quick, setQuick] = useState<QuickRange>("7d");
   const [q, setQ] = useState("");
   const [hideEmpty, setHideEmpty] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // ✅ Declarar SOLO UNA VEZ
   const lastRefreshRef = useRef<Date | null>(null);
 
-  /* Rango rápido */
-  const applyQuick = (kind: QuickRange) => {
-    const now = new Date();
-    let start = toYMD(now);
-    let end = toYMD(now);
-    if (kind === "7d") start = toYMD(new Date(now.getTime() - 7 * 24 * 3600 * 1000));
-    else if (kind === "30d") start = toYMD(new Date(now.getTime() - 30 * 24 * 3600 * 1000));
-    else if (kind === "month") start = toYMD(new Date(now.getFullYear(), now.getMonth(), 1));
-    setError(null);
-    setDateRange(normalizeRange(start, end));
-    setQuick(kind);
-  };
-
-  /* Cambio de fechas */
+  /* ------- Control de fechas ------- */
   const handleDateChange = (type: "start" | "end", value: string) => {
     if (!value) return;
     const normalized = normalizeRange(
@@ -112,21 +125,32 @@ const ReportPage: React.FC = () => {
     const s = fromYMDLocal(normalized.start);
     const e = fromYMDLocal(normalized.end);
     const now = new Date();
-    if (e < s) setError("Fecha final menor que inicial.");
-    else if (e > now) setError("Fecha final en el futuro.");
-    else setError(null);
+    if (e < s) setRangeError("La fecha final no puede ser menor que la inicial.");
+    else if (e > now) setRangeError("La fecha final no puede ser futura.");
+    else setRangeError(null);
     setDateRange(normalized);
     setQuick("custom");
   };
 
-  /* Ventana inclusiva */
+  const applyQuick = (kind: QuickRange) => {
+    const now = new Date();
+    let start = toYMD(now);
+    let end = toYMD(now);
+    if (kind === "7d") start = toYMD(new Date(now.getTime() - 7 * 24 * 3600 * 1000));
+    else if (kind === "30d") start = toYMD(new Date(now.getTime() - 30 * 24 * 3600 * 1000));
+    else if (kind === "month") start = toYMD(new Date(now.getFullYear(), now.getMonth(), 1));
+    setRangeError(null);
+    setDateRange(normalizeRange(start, end));
+    setQuick(kind);
+  };
+
   const windowMs = useMemo(() => {
     const s = startOfDayLocal(dateRange.start).getTime();
     const e = endOfDayLocal(dateRange.end).getTime();
     return [s, e] as const;
   }, [dateRange]);
 
-  /* Agregación */
+  /* ------- Agregación ------- */
   const reportData: ReportRow[] = useMemo(() => {
     if (!historyData || typeof historyData !== "object") return [];
     const [startMs, endMs] = windowMs;
@@ -141,12 +165,20 @@ const ReportPage: React.FC = () => {
           })
         : measures;
 
-      const first = measures[0] as any;
-      const name = first?.deviceName ?? first?.name ?? first?.roomName ?? first?.zone ?? zoneKey;
+      // 🔑 Nombre correcto tomado de sensors por la clave del histórico (devEUI || name)
+      const resolvedName =
+        nameByKey[zoneKey] ??
+        ((measures[0] as any)?.roomName ??
+          (measures[0] as any)?.zone ??
+          (measures[0] as any)?.name ??
+          String(zoneKey));
+
+      const code = String(zoneKey);
 
       if (!base.length) {
         return {
-          Zona: name,
+          Zona: resolvedName,
+          __zoneCode: code,
           "Promedio Temperatura (°C)": "—",
           "Promedio Humedad (%)": "—",
           "Temp Mín (°C)": "—",
@@ -161,7 +193,7 @@ const ReportPage: React.FC = () => {
 
       const temps = base.map((m: any) => Number(m.temperature)).filter(Number.isFinite);
       const hums = base
-        .map((m: any) => Number(m.humedity ?? m.humidity ?? m.hum))
+        .map((m: any) => Number(m.humedity ?? (m as any).humidity ?? (m as any).hum))
         .filter(Number.isFinite);
 
       const sum = (a: number, b: number) => a + b;
@@ -172,7 +204,8 @@ const ReportPage: React.FC = () => {
       const lastTs = last ? parseTs(last) : NaN;
 
       return {
-        Zona: name,
+        Zona: resolvedName,
+        __zoneCode: code,
         "Promedio Temperatura (°C)": avg(temps),
         "Promedio Humedad (%)": avg(hums),
         "Temp Mín (°C)": temps.length ? Math.min(...temps).toFixed(2) : "—",
@@ -196,112 +229,263 @@ const ReportPage: React.FC = () => {
 
     filtered.sort((a, b) => (b["Total Registros"] ?? 0) - (a["Total Registros"] ?? 0));
     return filtered;
-  }, [historyData, windowMs, q, hideEmpty]);
+  }, [historyData, windowMs, q, hideEmpty, nameByKey]);
 
-  /* Autorefresco si incluye hoy */
+  /* ------- Etiqueta de rango ------- */
+  const rangeLabel = useMemo(() => {
+    const s = startOfDayLocal(dateRange.start).getTime();
+    const e = endOfDayLocal(dateRange.end).getTime();
+    const diffDays = Math.floor((e - s) / (1000 * 3600 * 24)) + 1;
+    return diffDays <= 1 ? "1 día" : `${diffDays} días de datos`;
+  }, [dateRange]);
+
+  /* ------- Autorefresco cada 10 min si incluye hoy ------- */
   useEffect(() => {
-    if (dateRange.end !== todayStr) return;
+    const includesToday = dateRange.end === todayStr;
+    if (!includesToday) return;
     const id = setInterval(() => {
-      void refreshData?.();
-      lastRefreshRef.current = new Date();
+      try {
+        void refreshData?.();
+        lastRefreshRef.current = new Date();
+      } catch {}
     }, 10 * 60 * 1000);
     return () => clearInterval(id);
   }, [dateRange.end, todayStr, refreshData]);
 
-  /* =========================
-     UI — Mobile-first minimal
-  ========================== */
+  const lastRefreshHuman = useMemo(() => {
+    const d = lastRefreshRef.current;
+    return d ? d.toLocaleString("es-DO", { dateStyle: "short", timeStyle: "short" }) : "—";
+  }, [lastRefreshRef.current]);
+
+  /* ------- UI ------- */
+  const isCustom = quick === "custom";
+
   return (
-    <PageContainer title="Reporte" description={`${reportData.length} zonas`}>
-      {/* Barra compacta (stack en móvil) */}
-      <div className="bg-white border border-gray-200 rounded-lg p-3 mb-4">
-        {/* Rango rápido: select en móvil, píldoras en desktop */}
-        <div className="flex flex-col gap-2">
-          <div className="sm:hidden">
-            <select
-              value={quick}
-              onChange={(e) => {
-                const k = e.target.value as QuickRange;
-                k === "custom" ? setQuick("custom") : applyQuick(k);
-              }}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-            >
-              <option value="today">Hoy</option>
-              <option value="7d">7 días</option>
-              <option value="30d">30 días</option>
-              <option value="month">Mes actual</option>
-              <option value="custom">Personalizado</option>
-            </select>
-          </div>
+    <PageContainer
+      title="Reporte de Promedios por Zona"
+      description="Analiza datos históricos de temperatura y humedad por zona. Exporta promedios y extremos en el rango elegido."
+    >
+      {/* CONTROLES */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto] gap-4 items-end bg-white border border-gray-100 rounded-2xl p-5 shadow-sm mb-6">
+        <div className="flex flex-col gap-3">
+          {/* Quick ranges + bandeja inline en lg+ */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <CalendarIcon className="w-5 h-5 text-gray-500" />
+              Periodo:
+            </span>
 
-          <div className="hidden sm:flex sm:flex-wrap sm:items-center sm:gap-1.5">
-            {(["today", "7d", "30d", "month", "custom"] as QuickRange[]).map((k) => (
-              <button
-                key={k}
-                onClick={() => (k === "custom" ? setQuick("custom") : applyQuick(k))}
-                className={[
-                  "px-3 py-1.5 rounded-md text-sm border",
-                  quick === k ? "bg-blue-600 text-white border-blue-600" : "bg-white text-gray-700 border-gray-300",
-                ].join(" ")}
-              >
-                {k === "today" ? "Hoy" : k === "7d" ? "7 días" : k === "30d" ? "30 días" : k === "month" ? "Mes" : "Personalizado"}
-              </button>
-            ))}
-
-            <div className="ml-auto">
-              <ExportButton data={reportData} startDate={dateRange.start} endDate={dateRange.end} />
+            {/* Botones */}
+            <div className="flex flex-wrap gap-1.5">
+              {([
+                { k: "today", label: "Hoy" },
+                { k: "7d", label: "7 días" },
+                { k: "30d", label: "30 días" },
+                { k: "month", label: "Mes actual" },
+                { k: "custom", label: "Personalizado" },
+              ] as { k: QuickRange; label: string }[]).map((b) => (
+                <button
+                  key={b.k}
+                  onClick={() => (b.k === "custom" ? setQuick("custom") : applyQuick(b.k))}
+                  className={[
+                    "px-2.5 py-1.5 rounded-md border text-xs transition",
+                    quick === b.k
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50",
+                  ].join(" ")}
+                >
+                  {b.label}
+                </button>
+              ))}
             </div>
-          </div>
 
-          {/* Fechas solo si es personalizado */}
-          {quick === "custom" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {/* Bandeja inline (SOLO lg+) */}
+            <div
+              className={[
+                "hidden lg:flex items-center gap-2 ml-2",
+                "transition-all duration-200",
+                isCustom ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-1 pointer-events-none",
+              ].join(" ")}
+            >
               <input
                 type="date"
                 value={dateRange.start}
                 onChange={(e) => handleDateChange("start", e.target.value)}
                 max={toYMD(new Date())}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none w-40"
               />
+              <ArrowRightIcon className="w-5 h-5 text-gray-400" />
               <input
                 type="date"
                 value={dateRange.end}
                 onChange={(e) => handleDateChange("end", e.target.value)}
                 min={dateRange.start}
                 max={toYMD(new Date())}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none w-40"
+              />
+              <button
+                onClick={() => applyQuick("7d")}
+                className="px-3 py-2 text-sm rounded-md border border-gray-300 hover:bg-white"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => setQuick("custom")}
+                className="px-3 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Aplicar
+              </button>
+            </div>
+          </div>
+
+          {/* Bloque de fechas móvil */}
+          <div
+            aria-hidden={!isCustom}
+            className={[
+              "lg:hidden rounded-lg border border-dashed border-gray-200 bg-gray-50/70",
+              "px-3 py-3 sm:px-4 sm:py-3",
+              "transition-all duration-200",
+              isCustom ? "opacity-100 scale-100 visible" : "opacity-0 scale-[.98] invisible",
+              "min-h-[92px] sm:min-h-[80px]",
+            ].join(" ")}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <input
+                  type="date"
+                  value={dateRange.start}
+                  onChange={(e) => handleDateChange("start", e.target.value)}
+                  max={toYMD(new Date())}
+                  className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none w-full sm:w-44"
+                />
+                <ArrowRightIcon className="w-5 h-5 text-gray-400 hidden sm:block" />
+                <input
+                  type="date"
+                  value={dateRange.end}
+                  onChange={(e) => handleDateChange("end", e.target.value)}
+                  min={dateRange.start}
+                  max={toYMD(new Date())}
+                  className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none w-full sm:w-44"
+                />
+              </div>
+
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  onClick={() => applyQuick("7d")}
+                  className="px-3 py-2 text-sm rounded-md border border-gray-300 hover:bg-white"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => setQuick("custom")}
+                  className="px-3 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  Aplicar
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Búsqueda y switches */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="relative sm:ml-0 flex-1">
+              <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Buscar zona…"
+                className="w-full pl-8 pr-3 py-2.5 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
               />
             </div>
-          )}
 
-          {/* Búsqueda + ocultar vacías */}
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar zona…"
-              className="w-full sm:flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm"
-            />
-            <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700 select-none">
               <input
                 type="checkbox"
                 className="rounded border-gray-300"
                 checked={hideEmpty}
                 onChange={(e) => setHideEmpty(e.target.checked)}
               />
-              Ocultar vacías
+              <FunnelIcon className="w-4 h-4" />
+              Ocultar zonas sin data
             </label>
-            <div className="sm:hidden">
-              <ExportButton data={reportData} startDate={dateRange.start} endDate={dateRange.end} />
-            </div>
           </div>
+        </div>
 
-          {error && <div className="text-xs text-amber-700">{error}</div>}
+        <div className="flex flex-col items-end gap-2">
+          <ExportButton data={reportData} startDate={dateRange.start} endDate={dateRange.end} />
+          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+            <ArrowPathIcon className="w-4 h-4" />
+            Últ. actualización: {lastRefreshHuman}
+          </div>
         </div>
       </div>
 
-      {/* Tabla (tu componente) */}
-      <ReportTable data={reportData} />
+      {/* Error rango */}
+      {rangeError && (
+        <div className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-2 rounded-lg mb-4 text-sm">
+          <ExclamationTriangleIcon className="w-5 h-5 text-yellow-600" />
+          {rangeError}
+        </div>
+      )}
+
+      {/* Resumen */}
+      <div className="flex flex-wrap items-center justify-between mb-3">
+        <div className="text-sm text-gray-600">
+          <strong>Rango seleccionado:</strong> {rangeLabel}
+        </div>
+        <div className="text-sm text-gray-500">
+          <strong>Filas:</strong> {reportData.length}
+        </div>
+      </div>
+
+      {/* TABLA o EMPTY STATE elegante */}
+      {reportData.length > 0 ? (
+        <ReportTable
+          data={reportData}
+          /* Si tu ReportTable NO define esta prop en su tipo, quítala o ajusta el tipo del componente */
+          customRenderers={{
+            Zona: (value: string, row: ReportRow) => (
+              <div className="leading-tight">
+                <div className="font-medium text-gray-900">{value}</div>
+                {row.__zoneCode && (
+                  <div className="text-[11px] text-gray-500">{row.__zoneCode}</div>
+                )}
+              </div>
+            ),
+          } as any}
+        />
+      ) : (
+        <div className="flex flex-col items-center justify-center text-center bg-white border border-gray-100 rounded-2xl p-8 sm:p-12 shadow-sm">
+          <div className="rounded-full border border-gray-200 p-4 mb-3">
+            <InboxIcon className="w-8 h-8 text-gray-400" />
+          </div>
+          <h3 className="text-base sm:text-lg font-semibold text-gray-800">
+            No hay datos para el rango seleccionado
+          </h3>
+          <p className="mt-1 text-sm text-gray-500 max-w-md">
+            Ajusta el periodo o quita filtros para ver resultados. También puedes volver al rango rápido de
+            <span className="font-medium"> 7 días</span>.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <button
+              onClick={() => {
+                setQ("");
+                setHideEmpty(false);
+                applyQuick("7d");
+              }}
+              className="px-3 py-2 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700"
+            >
+              Restablecer filtros
+            </button>
+            <button
+              onClick={() => setQuick("custom")}
+              className="px-3 py-2 rounded-md text-sm border border-gray-300 hover:bg-gray-50"
+            >
+              Elegir fechas
+            </button>
+          </div>
+        </div>
+      )}
     </PageContainer>
   );
 };
