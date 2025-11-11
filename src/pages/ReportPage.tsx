@@ -87,10 +87,11 @@ const parseTs = (rec: any): number => {
    Página
 ========================= */
 const ReportPage: React.FC = () => {
-  // Ahora usamos también fetchHistoryRange + isRangeLoading del contexto
-  const { historyData, sensors, refreshData, fetchHistoryRange, isRangeLoading } = useContext(WeatherContext);
+  // Usa el nuevo fetchHistoryRange({ from, to }) y el indicador isRangeLoading
+  const { historyData, sensors, refreshData, fetchHistoryRange, isRangeLoading } =
+    useContext(WeatherContext);
 
-  // Mapa devEUI|name -> name visible
+  // Mapa devEUI|name -> nombre visible
   const nameByKey = useMemo(() => {
     const map: Record<string, string> = {};
     for (const s of sensors ?? []) {
@@ -120,36 +121,33 @@ const ReportPage: React.FC = () => {
     const toISO = endOfDayLocal(dateRange.end).toISOString();
     (async () => {
       try {
-        await fetchHistoryRange({ from: fromISO, to: toISO, pageSize: 500, maxPages: 50 });
+        await fetchHistoryRange({ from: fromISO, to: toISO });
       } catch {
         // noop
       }
     })();
   }, [dateRange.start, dateRange.end, fetchHistoryRange]);
 
-  /* ------- Al terminar el fetch de rango, log compacto por consola ------- */
+  /* ------- Al terminar el fetch de rango, podemos hacer logs/validaciones si hace falta ------- */
   const lastLoggedKey = useRef<string>("");
   useEffect(() => {
     if (isRangeLoading) return; // solo cuando termina
-    // clave simple para evitar logs repetidos con el mismo rango
     const key = `${dateRange.start}__${dateRange.end}`;
     if (lastLoggedKey.current === key) return;
     lastLoggedKey.current = key;
-
-    const startMs = startOfDayLocal(dateRange.start).getTime();
-    const endMs = endOfDayLocal(dateRange.end).getTime();
-
-    const countsInRange: Record<string, number> = {};
-    for (const [sensorKey, arr] of Object.entries(historyData ?? {})) {
-      const list = Array.isArray(arr) ? arr : [];
-      let c = 0;
-      for (const rec of list) {
-        const t = parseTs(rec);
-        if (!Number.isNaN(t) && t >= startMs && t <= endMs) c++;
-      }
-      countsInRange[sensorKey] = c;
-    }
-
+    // Si quieres validar “puntos por sensor en rango” deja este bloque como referencia:
+    // const startMs = startOfDayLocal(dateRange.start).getTime();
+    // const endMs = endOfDayLocal(dateRange.end).getTime();
+    // const countsInRange: Record<string, number> = {};
+    // for (const [sensorKey, arr] of Object.entries(historyData ?? {})) {
+    //   const list = Array.isArray(arr) ? arr : [];
+    //   let c = 0;
+    //   for (const rec of list) {
+    //     const t = parseTs(rec);
+    //     if (!Number.isNaN(t) && t >= startMs && t <= endMs) c++;
+    //   }
+    //   countsInRange[sensorKey] = c;
+    // }
   }, [isRangeLoading, dateRange.start, dateRange.end, historyData, sensors.length]);
 
   /* ------- Control de fechas ------- */
@@ -293,8 +291,6 @@ const ReportPage: React.FC = () => {
           fetchHistoryRange({
             from: startOfDayLocal(dateRange.start).toISOString(),
             to: endOfDayLocal(dateRange.end).toISOString(),
-            pageSize: 500,
-            maxPages: 50,
           }),
         ]);
         lastRefreshRef.current = new Date();
@@ -510,12 +506,11 @@ const ReportPage: React.FC = () => {
         </div>
       </div>
 
-      {/* TABLA o EMPTY STATE elegante */}
+      {/* TABLA o EMPTY STATE */}
       {reportData.length > 0 ? (
         <ReportTable
           loading={isRangeLoading}
           data={reportData}
-          /* Si tu ReportTable NO define esta prop en su tipo, quítala o ajusta el tipo del componente */
           customRenderers={{
             Zona: (value: string, row: ReportRow) => (
               <div className="leading-tight">
