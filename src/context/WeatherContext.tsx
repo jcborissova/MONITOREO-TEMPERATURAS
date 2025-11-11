@@ -45,7 +45,7 @@ interface WeatherContextProps {
   openWarehousePlan: (name: string) => Promise<void>;
   closeWarehousePlan: () => void;
 
-  /** Refresca datos; si no pasaron 5 min, NO hará fetch a menos que force=true */
+  /** Refresca datos; si no ha pasado POLL_MS, NO hará fetch a menos que force=true */
   refreshData: (force?: boolean) => Promise<void>;
   /** fetch histórico de TODOS los sensores en un rango [from,to] (ISO) con pool de concurrencia */
   fetchHistoryRange: (opts: {
@@ -345,8 +345,8 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     setClimateData(null);
   }, []);
 
-  /* --------- POLL GLOBAL CADA 5 MIN (sin importar navegación) --------- */
-  const POLL_MS = 60 * 1000; // 5 minutos
+  /* --------- POLL GLOBAL CADA 10s (persistente entre navegaciones/HMR) --------- */
+  const POLL_MS = 5 * 60 * 1000;
   const lastRefreshRef = useRef<number>(0);
   const isRefreshingRef = useRef(false);
 
@@ -391,22 +391,44 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     [refreshSensorsOnly, isModalOpen]
   );
 
-  // Arranca un único intervalo global (por si el provider se re-monta al navegar)
+  // Mantener la versión fresca de refreshData para el setInterval
+  const refreshFnRef = useRef(refreshData);
+  useEffect(() => {
+    refreshFnRef.current = refreshData;
+  }, [refreshData]);
+
+  // Crear / actualizar el poller global respetando POLL_MS, y forzar un refresh inmediato
   useEffect(() => {
     const w = window as any;
-    if (!w.__weatherPoller) {
-      // primera vez: programa el poller
+
+    const createPoller = () => {
       const id = window.setInterval(() => {
-        // dispara sin forzar; se auto–bloquea si aún no pasaron 5 min
-        void refreshData(false);
+        void refreshFnRef.current(false);
       }, POLL_MS);
-      w.__weatherPoller = { id, createdAt: Date.now() };
-    }
-    // cleanup solo si ésta fue la instancia que lo creó
-    return () => {
-      // no limpiar aquí para mantener poller vivo a través de navegación
+
+      w.__weatherPoller = { id, pollMs: POLL_MS, createdAt: Date.now() };
+      // refresh inmediato para no esperar el primer tick
+      void refreshFnRef.current(true);
+      // console.debug("[Weather] poller creado", POLL_MS);
     };
-  }, [refreshData]);
+
+    if (w.__weatherPoller?.id) {
+      // Si existe pero con otro intervalo, lo reemplazamos
+      if (w.__weatherPoller.pollMs !== POLL_MS) {
+        try { window.clearInterval(w.__weatherPoller.id); } catch {}
+        createPoller();
+      } else {
+        // Ya existe y con el mismo intervalo; opcionalmente refrescamos suave
+        void refreshFnRef.current(false);
+      }
+    } else {
+      createPoller();
+    }
+
+    // Nota: no limpiamos aquí para mantener el poller vivo entre navegaciones.
+    // Si prefieres limpiarlo al desmontar este Provider, usa:
+    // return () => { try { window.clearInterval((window as any).__weatherPoller?.id); } catch {} };
+  }, [POLL_MS]);
 
   const value = useMemo<WeatherContextProps>(
     () => ({
