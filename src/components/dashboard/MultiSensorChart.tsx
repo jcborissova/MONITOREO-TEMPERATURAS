@@ -116,6 +116,9 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     isRangeLoading,
   } = useContext(WeatherContext) as any;
 
+  // ---------- FIX: esperar a que haya sensores ----------
+  const sensorsReady = (Array.isArray(sensors) && sensors.length > 0);
+
   // -------- Controles de rango (local, como en Report) --------
   const today = new Date();
   const todayStr = toYMD(today);
@@ -127,6 +130,11 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     start: weekAgoStr,
     end: todayStr,
   });
+
+  // Forzar un refresh inicial (estado y “sample”)
+  useEffect(() => {
+    void refreshData?.(true);
+  }, []);
 
   // Para "custom" con datetime-local
   const [customStart, setCustomStart] = useState<string>("");
@@ -144,7 +152,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return base.replace(/,1\)$/, `,${Math.max(0, Math.min(1, alpha))})`);
   };
 
-  // -------- Unificación de timeline cruda (según historyData cargado) --------
+  // -------- Unificación de timeline cruda --------
   const unified = useMemo(() => {
     const tsSet = new Set<string>();
 
@@ -215,7 +223,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return { time, series, minIso, maxIso, names };
   }, [sensors, historyData]);
 
-  // -------- Ventana actual en ms (según quick/dateRange/custom) --------
+  // -------- Ventana actual en ms --------
   const windowMs = useMemo(() => {
     if (quick === "custom" && customStart && customEnd) {
       const s = toSafeDate(customStart).getTime();
@@ -230,17 +238,15 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       return [startMs, endMs] as const;
     }
 
-    // 24h / 7d / 30d usan dateRange (YYYY-MM-DD) como en Report
     const s = startOfDayLocal(dateRange.start).getTime();
     const e = endOfDayLocal(dateRange.end).getTime();
-    // Si el final incluye hoy, recorta 10 minutos
     const { start: todayStart, end: todayEnd } = dayBoundsMs(new Date());
     const includesToday = e >= todayStart && s <= todayEnd;
     const endAdj = includesToday ? adjustEndForNow(e) : e;
     return [s, endAdj] as const;
   }, [quick, dateRange.start, dateRange.end, customStart, customEnd, unified.minIso, unified.maxIso]);
 
-  // -------- Helpers para pedir rango (ISO) en fetch --------
+  // -------- Helpers para pedir rango (ISO) --------
   const computeRangeISO = (): { fromISO: string; toISO: string } => {
     let fromISO: string;
     let toISO: string;
@@ -249,7 +255,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       fromISO = toSafeDate(customStart).toISOString();
       toISO = toSafeDate(customEnd).toISOString();
     } else if (quick === "all") {
-      // Para "Todo": 90 días hacia atrás respecto a ahora
       const to = new Date();
       const from = new Date(to.getTime() - 90 * 24 * 3600 * 1000);
       fromISO = from.toISOString();
@@ -370,8 +375,9 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return { rows: withBounds, startIso, endIso };
   };
 
-  // -------- Fetch del histórico cuando cambia el rango --------
+  // -------- FIX: pedir histórico cuando cambia el rango **y** cuando hay sensores ------
   useEffect(() => {
+    if (!sensorsReady) return; // <- evita primer disparo vacío
     const { fromISO, toISO } = computeRangeISO();
     const load = async () => {
       try {
@@ -379,7 +385,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       } catch {/* noop */}
     };
     load();
-  }, [quick, dateRange.start, dateRange.end, customStart, customEnd, fetchHistoryRange]);
+  }, [sensorsReady, quick, dateRange.start, dateRange.end, customStart, customEnd, fetchHistoryRange]);
 
   // -------- Recalcular líneas cuando hay data o cambia la ventana --------
   useEffect(() => {
@@ -393,13 +399,12 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     setBinnedData(rows);
     setRangeStartIso(startIso);
     setRangeEndIso(endIso);
-    // proteger índices del Brush
     const endIdx = Math.max(0, rows.length - 1);
     setBrushRange({ startIndex: 0, endIndex: endIdx });
     setBrushKey((k) => k + 1);
   }, [windowMs[0], windowMs[1], unified.time.join("|")]);
 
-  // -------- Autorefresco cada 10 min si incluye hoy (re-fetch + rebuild) --------
+  // -------- Autorefresco cada 10 min si incluye hoy --------
   useEffect(() => {
     const [s, e] = windowMs;
     const { start: tS, end: tE } = dayBoundsMs(new Date());
@@ -408,12 +413,9 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
     const tick = async () => {
       try {
-        // 1) refrescar sensores rápidos (estado/batería)
         await refreshData?.();
-        // 2) volver a pedir histórico del mismo rango (traer nuevos puntos)
         const { fromISO, toISO } = computeRangeISO();
         await fetchHistoryRange?.({ from: fromISO, to: toISO, pageSize: 500, maxPages: 50 });
-        // 3) reconstruir bins con el nuevo "ahora" recortado 10 min
         const [startMs] = windowMs;
         const { rows, startIso, endIso } = buildBinnedData(startMs, adjustEndForNow(Date.now()));
         setBinnedData(rows);
@@ -469,7 +471,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     setQuick("custom");
   };
 
-  // -------- Toggles de series --------
+  // -------- Toggles --------
   const [showTemp, setShowTemp] = useState(true);
   const [showHum, setShowHum] = useState(true);
 
@@ -480,7 +482,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     setRangeError("");
   };
 
-  // -------- Render --------
   const isLoading = !!isRangeLoading;
 
   return (
@@ -512,7 +513,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
           <ArrowPathIcon className="w-4 h-4" /> Reset vista
         </button>
 
-        {/* Quick ranges (local, sin depender del Context) */}
+        {/* Quick ranges */}
         <div className="flex flex-wrap items-center gap-1 sm:gap-2 ml-auto">
           {(["24h", "7d", "30d", "all", "custom"] as Quick[]).map((opt) => (
             <button
@@ -536,14 +537,13 @@ const MultiSensorTimelineRecharts: React.FC = () => {
             </button>
           ))}
 
-          {/* Badge de puntos */}
           <span className="ml-1 px-2 py-1 rounded-full text-[11px] sm:text-xs bg-indigo-50 text-indigo-700 border border-indigo-100">
             Puntos: {binnedData.length}
           </span>
         </div>
       </div>
 
-      {/* Controles de rango personalizado (datetime-local) */}
+      {/* Controles custom */}
       <div className="mb-3">
         <div className="relative">
           <div className="min-h-[48px] sm:min-h-[56px]" />
@@ -602,7 +602,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
       {/* Gráfico + overlay de carga */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-3 sm:p-4 md:p-6">
-        {/* Chip superior de estado */}
         {isRangeLoading && (
           <div className="mb-2 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs border-blue-200 bg-blue-50 text-blue-700">
             <ArrowPathIcon className="w-4 h-4 animate-spin" />
@@ -612,25 +611,23 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
         <div
           className="relative w-full h-[360px] sm:h-[420px] md:h-[480px] lg:h-[520px] min-w-0"
-          aria-busy={isLoading}
+          aria-busy={isRangeLoading}
           aria-live="polite"
         >
-          {/* Capa de desenfoque sobre el gráfico mientras carga */}
           <div
             className={[
               "absolute inset-0 z-[1] transition-opacity duration-200 pointer-events-none",
-              isLoading ? "opacity-100" : "opacity-0",
+              isRangeLoading ? "opacity-100" : "opacity-0",
             ].join(" ")}
             style={{
-              backdropFilter: isLoading ? "blur(2px)" : "none",
-              WebkitBackdropFilter: isLoading ? "blur(2px)" : "none",
-              background: isLoading ? "rgba(255,255,255,0.35)" : "transparent",
+              backdropFilter: isRangeLoading ? "blur(2px)" : "none",
+              WebkitBackdropFilter: isRangeLoading ? "blur(2px)" : "none",
+              background: isRangeLoading ? "rgba(255,255,255,0.35)" : "transparent",
               borderRadius: "1rem",
             }}
           />
 
-          {/* Overlay con spinner y texto (bloquea interacciones) */}
-          {isLoading && (
+          {isRangeLoading && (
             <div className="absolute inset-0 z-[2] flex items-center justify-center">
               <div className="flex items-center gap-3 px-3 py-2 rounded-full bg-white/85 border border-gray-200 shadow-sm text-sm text-gray-700">
                 <ArrowPathIcon className="w-5 h-5 animate-spin text-blue-600" />
@@ -639,8 +636,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
             </div>
           )}
 
-          {/* Contenedor del gráfico */}
-          <div className={["relative z-0 h-full transition", isLoading ? "pointer-events-none select-none" : ""].join(" ")}>
+          <div className={["relative z-0 h-full transition", isRangeLoading ? "pointer-events-none select-none" : ""].join(" ")}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={binnedData} margin={{ top: 12, right: 16, left: 8, bottom: 8 }}>
                 <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
