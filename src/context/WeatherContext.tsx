@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable no-empty */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-refresh/only-export-components */
@@ -44,7 +45,8 @@ interface WeatherContextProps {
   openWarehousePlan: (name: string) => Promise<void>;
   closeWarehousePlan: () => void;
 
-  refreshData: () => Promise<void>;
+  /** Refresca datos; si no pasaron 5 min, NO hará fetch a menos que force=true */
+  refreshData: (force?: boolean) => Promise<void>;
   /** fetch histórico de TODOS los sensores en un rango [from,to] (ISO) con pool de concurrencia */
   fetchHistoryRange: (opts: {
     from: string;
@@ -187,10 +189,10 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, [sensorsFromCtx]);
 
+  // Primer fetch al montar (una sola vez)
   useEffect(() => {
     void fetchSensors();
   }, [fetchSensors]);
-  
 
   /** Rango por sensor con cache + de-dup */
   const fetchHistoryRangeFor = useCallback(
@@ -342,66 +344,69 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     setIsModalOpen(false);
     setClimateData(null);
   }, []);
-  
 
-  const refreshData = useCallback(async () => {
-    // refresca lista en el provider de sensores (evita doble request)
-    await refreshSensorsOnly();
+  /* --------- POLL GLOBAL CADA 5 MIN (sin importar navegación) --------- */
+  const POLL_MS = 60 * 1000; // 5 minutos
+  const lastRefreshRef = useRef<number>(0);
+  const isRefreshingRef = useRef(false);
 
-    // trae sensores frescos
-    const latest = await sensorsService.getAllSensors(true);
-    setSensors(latest);
-    if (isModalOpen) setClimateData({ rooms: latest });
+  const refreshData = useCallback(
+    async (force = false) => {
+      if (isRefreshingRef.current) return;
+      const elapsed = Date.now() - (lastRefreshRef.current || 0);
+      if (!force && elapsed < POLL_MS) {
+        // Demasiado pronto; evita llamadas por navegación o renders
+        return;
+      }
+      isRefreshingRef.current = true;
+      try {
+        // refresca lista en el provider de sensores (evita doble request)
+        await refreshSensorsOnly();
 
-    // refresca la "muestra" de histórico (~24h = 288 puntos)
-    const entries = await Promise.all(
-      latest.map(async (s) => {
-        const key = s.devEUI ?? s.name;
-        try {
-          const hist = await sensorsService.getSensorHistory(key, 288);
-          return [key, hist] as const;
-        } catch {
-          return [key, [] as Measure[]] as const;
-        }
-      })
-    );
-    setHistoryData(Object.fromEntries(entries));
-  }, [refreshSensorsOnly, isModalOpen]);
+        // trae sensores frescos
+        const latest = await sensorsService.getAllSensors(true);
+        setSensors(latest);
+        if (isModalOpen) setClimateData({ rooms: latest });
 
+        // refresca la "muestra" de histórico (~24h = 288 puntos)
+        const entries = await Promise.all(
+          latest.map(async (s) => {
+            const key = s.devEUI ?? s.name;
+            try {
+              const hist = await sensorsService.getSensorHistory(key, 288);
+              return [key, hist] as const;
+            } catch {
+              return [key, [] as Measure[]] as const;
+            }
+          })
+        );
+        setHistoryData(Object.fromEntries(entries));
+        lastRefreshRef.current = Date.now();
+      } catch (e) {
+        console.error("WeatherContext.refreshData error:", e);
+      } finally {
+        isRefreshingRef.current = false;
+      }
+    },
+    [refreshSensorsOnly, isModalOpen]
+  );
+
+  // Arranca un único intervalo global (por si el provider se re-monta al navegar)
   useEffect(() => {
-    const POLL_MS = 5 * 60 * 1000; // 5 minutos
-
-    const tick = async () => {
-      // Evita fetch si la pestaña no está visible
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-      await refreshData();
-    };
-
-    // Primer refresh rápido al enfocar/volver visible
-    const onFocus = () => void tick();
-    const onVisibility = () => void tick();
-
-    if (typeof window !== "undefined") {
-      window.addEventListener("focus", onFocus);
+    const w = window as any;
+    if (!w.__weatherPoller) {
+      // primera vez: programa el poller
+      const id = window.setInterval(() => {
+        // dispara sin forzar; se auto–bloquea si aún no pasaron 5 min
+        void refreshData(false);
+      }, POLL_MS);
+      w.__weatherPoller = { id, createdAt: Date.now() };
     }
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", onVisibility);
-    }
-
-    const id = window.setInterval(tick, POLL_MS);
-
+    // cleanup solo si ésta fue la instancia que lo creó
     return () => {
-      window.clearInterval(id);
-      if (typeof window !== "undefined") {
-        window.removeEventListener("focus", onFocus);
-      }
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", onVisibility);
-      }
+      // no limpiar aquí para mantener poller vivo a través de navegación
     };
   }, [refreshData]);
-
-
 
   const value = useMemo<WeatherContextProps>(
     () => ({
