@@ -296,13 +296,6 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         if (myGen !== rangeGenRef.current) return;
 
-        console.log("[WeatherContext] Rango listo:", {
-          from: opts.from,
-          to: opts.to,
-          sensors: keys.length,
-          gen: myGen,
-          currentGen: rangeGenRef.current,
-        });
       } finally {
         endRangeLoading();
         // limpia controller vigente

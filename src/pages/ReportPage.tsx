@@ -150,12 +150,6 @@ const ReportPage: React.FC = () => {
       countsInRange[sensorKey] = c;
     }
 
-    console.log("[ReportPage] Extracto listo:", {
-      from: new Date(startMs).toISOString(),
-      to: new Date(endMs).toISOString(),
-      sensors: sensors.length,
-      countsBySensorInRange: countsInRange,
-    });
   }, [isRangeLoading, dateRange.start, dateRange.end, historyData, sensors.length]);
 
   /* ------- Control de fechas ------- */

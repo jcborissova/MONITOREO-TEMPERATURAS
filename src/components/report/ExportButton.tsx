@@ -215,13 +215,6 @@ const ExportButton: React.FC<ExportButtonProps> = ({
         }
         counts[zoneName] = c;
       }
-      console.log("[ExportButton] Archivo generado:", {
-        file: finalName,
-        from: new Date(startMs).toISOString(),
-        to: new Date(endMs).toISOString(),
-        zones: tableFiltered.length,
-        rowsHistoricoPorZona: counts,
-      });
 
       setShowModal(false);
     } catch (err) {
