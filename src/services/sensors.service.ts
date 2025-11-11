@@ -1,5 +1,7 @@
-/* eslint-disable no-extra-boolean-cast */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable no-extra-boolean-cast */
+
 import apiService from "./api.service";
 import { API_ENDPOINTS, API_TIMEOUTS } from "../config/api.config";
 import type { Room, Measure } from "../types/types";
@@ -21,10 +23,9 @@ const keySensors = "ALL_SENSORS";
 /* =========================
    Límites y muestreo
 ========================= */
-const STEP_MIN = 2_000;       // punto de partida mínimo
-const MAX_LIMIT = 50_000;     // techo conservador por request
-const HARD_SERVER_LIMIT = 100_000; // si hay hardcap real, ajusta
-const SAMPLE_MINUTES = 5;     // cada 5 min (≈288/día)
+const STEP_MIN = 2_000;            // punto inicial mínimo
+const HARD_SERVER_LIMIT = 200_000; // techo duro (ajústalo si aplica)
+const SAMPLE_MINUTES = 5;          // separación esperada entre muestras (fallback)
 
 /* =========================
    Helpers
@@ -64,22 +65,6 @@ const toSafeISO = (v: any): string | undefined => {
 const toSafeNum = (v: any): number | undefined => {
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
-};
-
-/** Estima muestras por sensor para el rango */
-const estimatePointsPerSensor = (
-  sinceISO: string,
-  untilISO: string,
-  sampleMinutes = SAMPLE_MINUTES,
-  headroom = 0.2
-) => {
-  const since = new Date(sinceISO).getTime();
-  const until = new Date(untilISO).getTime();
-  if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since) return 0;
-
-  const msPerSample = sampleMinutes * 60_000;
-  const samples = Math.ceil((until - since) / msPerSample);
-  return Math.ceil(samples * (1 + headroom));
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -133,6 +118,45 @@ const mapApiHistoryToMeasure = (raw: any): Measure => {
 };
 
 /* =========================
+   Estimación de GAP real
+========================= */
+const gapCache = new Map<string, { t: number; gapMin: number }>();
+
+async function getMedianGapMinutes(devEUI: string): Promise<number> {
+  const hit = gapCache.get(devEUI);
+  if (hit && Date.now() - hit.t < TTL_MS) return hit.gapMin;
+
+  const url = API_ENDPOINTS.SENSOR_HISTORY(devEUI);
+  const res = await apiService.get(`${url}?limit=2000`, {
+    timeout: API_TIMEOUTS.normal,
+  });
+
+  const arr = unwrapArray<any>(res).map(mapApiHistoryToMeasure);
+  arr.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  if (arr.length < 3) {
+    const fallback = SAMPLE_MINUTES; // por defecto
+    gapCache.set(devEUI, { t: Date.now(), gapMin: fallback });
+    return fallback;
+  }
+
+  const gaps: number[] = [];
+  for (let i = 1; i < arr.length; i++) {
+    const dt =
+      (new Date(arr[i].timestamp).getTime() - new Date(arr[i - 1].timestamp).getTime()) / 60000;
+    if (Number.isFinite(dt) && dt > 0) gaps.push(dt);
+  }
+
+  gaps.sort((a, b) => a - b);
+  const mid = Math.floor(gaps.length / 2);
+  const median = gaps.length % 2 ? gaps[mid] : (gaps[mid - 1] + gaps[mid]) / 2;
+
+  const gapMin = Math.max(1, Math.min(120, median || SAMPLE_MINUTES));
+  gapCache.set(devEUI, { t: Date.now(), gapMin });
+  return gapMin;
+}
+
+/* =========================
    Servicio
 ========================= */
 export const sensorsService = {
@@ -174,20 +198,19 @@ export const sensorsService = {
   },
 
   /**
-   * Rango adaptativo robusto:
-   * - Calcula un límite inicial según rango (muestras 5 min) con holgura 20%.
-   * - Crece EXPONENCIALMENTE (x1.7) hasta cubrir [since, until] o llegar al techo.
+   * Rango robusto usando SOLO `limit` en backend:
+   * - Estima puntos necesarios por mediana real de separación (gap).
+   * - Pide "últimos N" y aumenta exponencialmente hasta cubrir [since, until] o no haber más datos.
    * - Filtra client-side por [since, until].
-   * - Cachea por "cobertura de rango" (independiente del límite usado).
-   * - Usa timeout grande (120s) y pequeños “respiros” para no saturar.
+   * - Cachea por cobertura de rango (COVER_V2).
    */
   async getSensorHistoryRange(
     devEUI: string,
     opts: {
       since: string; // ISO
       until: string; // ISO
-      pageSize?: number; // compat
-      maxPages?: number; // compat
+      pageSize?: number; // compat (no lo usa el backend)
+      maxPages?: number; // compat (no lo usa el backend)
       signal?: AbortSignal;
     }
   ): Promise<Measure[]> {
@@ -197,39 +220,61 @@ export const sensorsService = {
     const untilMs = new Date(opts.until).getTime();
     if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || untilMs < sinceMs) return [];
 
-    const est = estimatePointsPerSensor(opts.since, opts.until, SAMPLE_MINUTES, 0.2);
-    const MAX = Math.min(MAX_LIMIT, HARD_SERVER_LIMIT);
-
-    let limit = Math.min(Math.max(STEP_MIN, est), MAX);
-    if (opts.pageSize || opts.maxPages) {
-      const legacyBase = Math.max(1, opts.pageSize ?? 500) * Math.max(1, opts.maxPages ?? 10);
-      limit = Math.min(Math.max(limit, legacyBase), MAX);
-    }
-
-    const coverageKey = `${devEUI}__${opts.since}__${opts.until}__COVER`;
-    const now = Date.now();
+    const coverageKey = `${devEUI}__${opts.since}__${opts.until}__COVER_V2`;
     const cached = cacheHistory.get(coverageKey);
-    if (cached && now - cached.t < TTL_MS) return cached.v;
+    if (cached && Date.now() - cached.t < TTL_MS) return cached.v;
 
     const inflight = inflightHistory.get(coverageKey);
     if (inflight) return inflight;
 
-    const run = async () => {
+    const p = (async () => {
       const url = API_ENDPOINTS.SENSOR_HISTORY(devEUI);
+
+      // 1) Estimar separación real para calcular N
+      let gapMin = SAMPLE_MINUTES;
+      try {
+        gapMin = await getMedianGapMinutes(devEUI);
+      } catch {
+        // fallback ya seteado
+      }
+      const durationMin = Math.max(1, (untilMs - sinceMs) / 60000);
+      const estPoints = Math.ceil(durationMin / gapMin);
+
+      // 2) Límite inicial agresivo con holgura
+      const MAX = Math.min(HARD_SERVER_LIMIT, 200_000);
+      let limit = Math.min(
+        Math.max(STEP_MIN, Math.ceil(estPoints * 1.5)),
+        MAX
+      );
+
+      // Compat: si te pasan pageSize/maxPages, respétalo como piso
+      if (opts.pageSize || opts.maxPages) {
+        const legacyBase =
+          Math.max(1, opts.pageSize ?? 500) * Math.max(1, opts.maxPages ?? 10);
+        limit = Math.max(limit, legacyBase);
+      }
+
       let bestFiltered: Measure[] = [];
-      let previousFetched = -1;
+      let previousCount = -1;
 
       while (true) {
         const reqUrl = `${url}?limit=${limit}`;
         const res = await apiService.get(reqUrl, {
+          timeout: API_TIMEOUTS.bigRequest,
           signal: opts.signal,
-          timeout: API_TIMEOUTS.bigRequest, // clave para evitar cancelaciones
           "x-retries": 2,
-          "x-retryDelay": 500,
+          "x-retryDelay": 400,
         });
-        const all = unwrapArray<any>(res).map(mapApiHistoryToMeasure);
 
+        const all = unwrapArray<any>(res).map(mapApiHistoryToMeasure);
         all.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+        const allMin = all[0]?.timestamp
+          ? new Date(all[0].timestamp).getTime()
+          : Number.POSITIVE_INFINITY;
+        const allMax = all[all.length - 1]?.timestamp
+          ? new Date(all[all.length - 1].timestamp).getTime()
+          : Number.NEGATIVE_INFINITY;
 
         const filtered = all.filter((m) => {
           const t = new Date(m.timestamp).getTime();
@@ -237,36 +282,30 @@ export const sensorsService = {
         });
         bestFiltered = filtered;
 
-        const allMin = all[0]?.timestamp ? new Date(all[0].timestamp).getTime() : Number.POSITIVE_INFINITY;
-        const allMax = all[all.length - 1]?.timestamp ? new Date(all[all.length - 1].timestamp).getTime() : Number.NEGATIVE_INFINITY;
-
         const coversLeft = allMin <= sinceMs;
         const coversRight = allMax >= untilMs;
         const coveredSpan = coversLeft && coversRight;
 
-        if (coveredSpan && filtered.length > 0) break;   // cubierto con datos
-        if (coveredSpan && filtered.length === 0) {       // cubierto sin datos
-          bestFiltered = [];
+        if (coveredSpan && filtered.length > 0) break; // cubre y hay datos
+        if (coveredSpan && filtered.length === 0) {
+          bestFiltered = []; // cubre pero rango vacío
           break;
         }
-        if (previousFetched === all.length) break;        // no hay más profundidad
-        previousFetched = all.length;
-        if (limit >= MAX) break;                          // techo de seguridad
 
-        // siguiente salto exponencial moderado
-        const next = Math.min(Math.ceil(limit * 1.7), MAX);
+        if (previousCount === all.length) break; // no hay más profundidad
+        previousCount = all.length;
+
+        if (limit >= MAX) break; // techo
+        const next = Math.min(MAX, Math.ceil(limit * 1.8)); // salto exponencial
         if (next === limit) break;
         limit = next;
 
-        // respiro corto
-        await sleep(120);
+        await sleep(120); // respiro
       }
 
       cacheHistory.set(coverageKey, { t: Date.now(), v: bestFiltered });
       return bestFiltered;
-    };
-
-    const p = run().finally(() => {
+    })().finally(() => {
       inflightHistory.delete(coverageKey);
     });
 

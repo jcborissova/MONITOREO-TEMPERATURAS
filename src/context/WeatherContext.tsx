@@ -1,8 +1,6 @@
-/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable no-empty */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable react-refresh/only-export-components */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-refresh/only-export-components */
 "use client";
 
 import React, {
@@ -47,7 +45,7 @@ interface WeatherContextProps {
 
   /** Refresca datos; si no ha pasado POLL_MS, NO hará fetch a menos que force=true */
   refreshData: (force?: boolean) => Promise<void>;
-  /** fetch histórico de TODOS los sensores en un rango [from,to] (ISO) con pool de concurrencia */
+  /** fetch histórico de TODOS los sensores en un rango [from,to] (ISO). El servicio usa sólo `limit` internamente. */
   fetchHistoryRange: (opts: {
     from: string;
     to: string;
@@ -72,7 +70,8 @@ export const WeatherContext = createContext<WeatherContextProps>({
 });
 
 export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { sensors: sensorsFromCtx, refreshSensors: refreshSensorsOnly } = React.useContext(SensorsContext);
+  const { sensors: sensorsFromCtx, refreshSensors: refreshSensorsOnly } =
+    React.useContext(SensorsContext);
 
   const [warehouse, setWarehouse] = useState<WarehouseData | null>(null);
   const [sensors, setSensors] = useState<Room[]>([]);
@@ -84,11 +83,11 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [isRangeLoading, setIsRangeLoading] = useState<boolean>(false);
 
   /* ====== Control Fino de Loading de Rango ====== */
-  const rangeOpsRef = useRef(0);                               // contador de batches activos
-  const rangeCtrlRef = useRef<AbortController | null>(null);   // abort del batch vigente
-  const rangeGenRef = useRef(0);                               // generación (para abortar anteriores)
-  const rangeShowSinceRef = useRef<number>(0);                 // inicio del loading visible
-  const rangeWatchdogRef = useRef<number | null>(null);        // id de watchdog
+  const rangeOpsRef = useRef(0);
+  const rangeCtrlRef = useRef<AbortController | null>(null);
+  const rangeGenRef = useRef(0);
+  const rangeShowSinceRef = useRef<number>(0);
+  const rangeWatchdogRef = useRef<number | null>(null);
   const MIN_LOADING_MS = 500;
   const WATCHDOG_MS = 120_000;
 
@@ -127,7 +126,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
   /* ====== In-flight de-dup para rango por sensor ====== */
   type RangeKey = `${string}__${number}__${number}`; // devEUI__startMs__endMs
   const inflightRange = useRef(new Map<RangeKey, Promise<Measure[]>>());
-  const cacheRange = useRef(new Map<RangeKey, Measure[]>()); // cache corta del rango ya traído
+  const cacheRange = useRef(new Map<RangeKey, Measure[]>());
 
   const mergeHistory = useCallback((prev: Measure[], next: Measure[]) => {
     const map = new Map<number, Measure>();
@@ -142,9 +141,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
   const fetchSensors = useCallback(async (): Promise<Room[]> => {
     setIsLoading(true);
     try {
-      const list = sensorsFromCtx.length
-        ? sensorsFromCtx
-        : await sensorsService.getAllSensors();
+      const list = sensorsFromCtx.length ? sensorsFromCtx : await sensorsService.getAllSensors();
 
       const entries = await Promise.all(
         list.map(async (s) => {
@@ -166,9 +163,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
         const latestMs = arr?.length
           ? new Date(arr[arr.length - 1].timestamp).getTime()
           : 0;
-        const isConnected = latestMs
-          ? Date.now() - latestMs <= 30 * 60_000
-          : false;
+        const isConnected = latestMs ? Date.now() - latestMs <= 30 * 60_000 : false;
         return {
           ...s,
           isConnected,
@@ -189,12 +184,12 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, [sensorsFromCtx]);
 
-  // Primer fetch al montar (una sola vez)
+  // Primer fetch al montar
   useEffect(() => {
     void fetchSensors();
   }, [fetchSensors]);
 
-  /** Rango por sensor con cache + de-dup */
+  /** Rango por sensor con cache + de-dup (usa servicio con backend-only-limit) */
   const fetchHistoryRangeFor = useCallback(
     async (
       devEUI: string,
@@ -222,8 +217,8 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
         .getSensorHistoryRange(devEUI, {
           since: opts.from,
           until: opts.to,
-          pageSize: opts.pageSize ?? 500, // compat
-          maxPages: opts.maxPages ?? 10,  // compat
+          pageSize: opts.pageSize ?? 500,
+          maxPages: opts.maxPages ?? 10,
           signal: opts.signal,
         })
         .then((data) => {
@@ -244,21 +239,18 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     [mergeHistory]
   );
 
-  /** Rango para TODOS los sensores con pool de concurrencia + abort + watchdog */
+  /** Rango para TODOS los sensores con pool + abort + watchdog */
   const fetchHistoryRange = useCallback(
-    async (opts: {
-      from: string;
-      to: string;
-      pageSize?: number;
-      maxPages?: number;
-    }) => {
+    async (opts: { from: string; to: string; pageSize?: number; maxPages?: number }) => {
       if (!opts?.from || !opts?.to) return;
 
       rangeGenRef.current++;
       const myGen = rangeGenRef.current;
 
       if (rangeCtrlRef.current) {
-        try { rangeCtrlRef.current.abort(); } catch {}
+        try {
+          rangeCtrlRef.current.abort();
+        } catch {}
       }
       const ctrl = new AbortController();
       rangeCtrlRef.current = ctrl;
@@ -266,9 +258,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
       beginRangeLoading();
 
       try {
-        const keys = sensors
-          .map((s) => s.devEUI ?? s.name)
-          .filter(Boolean) as string[];
+        const keys = sensors.map((s) => s.devEUI ?? s.name).filter(Boolean) as string[];
         if (keys.length === 0) return;
 
         const POOL = Math.min(6, Math.max(3, Math.ceil(keys.length / 4)));
@@ -283,7 +273,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
               await fetchHistoryRangeFor(key, { ...opts, signal: ctrl.signal });
             } catch (e: any) {
               if (e?.name !== "AbortError") {
-                // opcional: log suave
+                // silencioso
               }
             }
             await new Promise((r) => setTimeout(r, 40));
@@ -295,10 +285,8 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
         );
 
         if (myGen !== rangeGenRef.current) return;
-
       } finally {
         endRangeLoading();
-        // limpia controller vigente
         if (rangeCtrlRef.current?.signal === ctrl.signal) {
           rangeCtrlRef.current = null;
         }
@@ -338,7 +326,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     setClimateData(null);
   }, []);
 
-  /* --------- POLL GLOBAL CADA 10s (persistente entre navegaciones/HMR) --------- */
+  /* --------- POLL GLOBAL cada 5 min --------- */
   const POLL_MS = 5 * 60 * 1000;
   const lastRefreshRef = useRef<number>(0);
   const isRefreshingRef = useRef(false);
@@ -347,21 +335,16 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     async (force = false) => {
       if (isRefreshingRef.current) return;
       const elapsed = Date.now() - (lastRefreshRef.current || 0);
-      if (!force && elapsed < POLL_MS) {
-        // Demasiado pronto; evita llamadas por navegación o renders
-        return;
-      }
+      if (!force && elapsed < POLL_MS) return;
+
       isRefreshingRef.current = true;
       try {
-        // refresca lista en el provider de sensores (evita doble request)
         await refreshSensorsOnly();
 
-        // trae sensores frescos
         const latest = await sensorsService.getAllSensors(true);
         setSensors(latest);
         if (isModalOpen) setClimateData({ rooms: latest });
 
-        // refresca la "muestra" de histórico (~24h = 288 puntos)
         const entries = await Promise.all(
           latest.map(async (s) => {
             const key = s.devEUI ?? s.name;
@@ -384,13 +367,13 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     [refreshSensorsOnly, isModalOpen]
   );
 
-  // Mantener la versión fresca de refreshData para el setInterval
+  // Mantener versión fresca de refreshData para setInterval
   const refreshFnRef = useRef(refreshData);
   useEffect(() => {
     refreshFnRef.current = refreshData;
   }, [refreshData]);
 
-  // Crear / actualizar el poller global respetando POLL_MS, y forzar un refresh inmediato
+  // Crear / actualizar poller global y forzar refresh inmediato
   useEffect(() => {
     const w = window as any;
 
@@ -400,27 +383,21 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
       }, POLL_MS);
 
       w.__weatherPoller = { id, pollMs: POLL_MS, createdAt: Date.now() };
-      // refresh inmediato para no esperar el primer tick
-      void refreshFnRef.current(true);
-      // console.debug("[Weather] poller creado", POLL_MS);
+      void refreshFnRef.current(true); // primer refresh
     };
 
     if (w.__weatherPoller?.id) {
-      // Si existe pero con otro intervalo, lo reemplazamos
       if (w.__weatherPoller.pollMs !== POLL_MS) {
-        try { window.clearInterval(w.__weatherPoller.id); } catch {}
+        try {
+          window.clearInterval(w.__weatherPoller.id);
+        } catch {}
         createPoller();
       } else {
-        // Ya existe y con el mismo intervalo; opcionalmente refrescamos suave
         void refreshFnRef.current(false);
       }
     } else {
       createPoller();
     }
-
-    // Nota: no limpiamos aquí para mantener el poller vivo entre navegaciones.
-    // Si prefieres limpiarlo al desmontar este Provider, usa:
-    // return () => { try { window.clearInterval((window as any).__weatherPoller?.id); } catch {} };
   }, [POLL_MS]);
 
   const value = useMemo<WeatherContextProps>(

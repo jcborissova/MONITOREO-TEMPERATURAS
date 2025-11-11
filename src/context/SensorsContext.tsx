@@ -1,6 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useState, useEffect, type ReactNode } from "react";
 import type { Room, Measure } from "../types/types";
 import { sensorsService } from "../services/sensors.service";
@@ -30,7 +28,11 @@ const toMs = (v: any): number => {
   return Number.isFinite(ms) ? ms : 0;
 };
 
-const computeConnectionFromMs = (latestMs: number, status?: string, thresholdMin = CONNECTION_THRESHOLD_MIN): ConnInfo => {
+const computeConnectionFromMs = (
+  latestMs: number,
+  status?: string,
+  thresholdMin = CONNECTION_THRESHOLD_MIN
+): ConnInfo => {
   const apiSaysConnected = (status ?? "").toLowerCase() === "conectado";
   const recentByTime = latestMs ? Date.now() - latestMs <= thresholdMin * 60_000 : false;
   return {
