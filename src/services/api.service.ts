@@ -1,8 +1,44 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// ============================================
-// src/services/api.service.ts
-import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios';
-import { API_CONFIG } from '../config/api.config';
+import axios, {
+  type AxiosInstance,
+  type AxiosRequestConfig,
+  type AxiosResponse,
+  AxiosError,
+  AxiosHeaders, // 👈 importamos AxiosHeaders
+} from "axios";
+import { API_CONFIG } from "../config/api.config";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Retry con backoff exponencial + jitter para errores transitorios/timeouts */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  {
+    retries = 2,
+    baseDelay = 400,
+  }: { retries?: number; baseDelay?: number } = {}
+): Promise<T> {
+  let err: any;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      err = e;
+      const status = (e as AxiosError)?.response?.status;
+
+      // No reintentar si fue cancelado/abortado o errores 4xx (excepto 408)
+      if (e?.name === "CanceledError" || e?.name === "AbortError") throw e;
+      if (status && status !== 408 && status < 500) throw e;
+
+      // Backoff + jitter
+      const delay = Math.round(baseDelay * Math.pow(1.7, i) + Math.random() * 150);
+      await sleep(delay);
+    }
+  }
+  throw err;
+}
+
+let redirecting = false;
 
 class ApiService {
   private api: AxiosInstance;
@@ -14,63 +50,83 @@ class ApiService {
       headers: API_CONFIG.headers,
     });
 
-    // Request Interceptor - Agregar JWT token automáticamente
+    // Request: agrega JWT automáticamente sin romper el tipo AxiosHeaders
     this.api.interceptors.request.use(
       (config) => {
-        const token = localStorage.getItem('access_token');
+        const token = localStorage.getItem("access_token");
         if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
+          // Asegurar que config.headers sea AxiosHeaders
+          if (!config.headers) {
+            config.headers = new AxiosHeaders();
+          } else if (!(config.headers instanceof AxiosHeaders)) {
+            config.headers = new AxiosHeaders(config.headers);
+          }
+          // Mutar, no reasignar con objeto
+          (config.headers as AxiosHeaders).set("Authorization", `Bearer ${token}`);
         }
         return config;
       },
-      (error) => {
-        return Promise.reject(error);
-      }
+      (error) => Promise.reject(error)
     );
 
-    // Response Interceptor - Manejar errores globalmente
+    // Response: 401 -> redirect a login (evita bucles)
     this.api.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response?.status === 401) {
-          // Token expirado o inválido
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('user');
-          window.location.href = '/login';
+        if (error?.response?.status === 401) {
+          localStorage.removeItem("access_token");
+          localStorage.removeItem("user");
+          if (!redirecting) {
+            redirecting = true;
+            window.location.href = "/login";
+          }
         }
         return Promise.reject(error);
       }
     );
   }
 
-  // GET request
-  async get<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    const response: AxiosResponse<T> = await this.api.get(url, config);
-    return response.data;
+  private async request<T>(
+    method: "get" | "post" | "put" | "patch" | "delete",
+    url: string,
+    config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number },
+    data?: any
+  ): Promise<T> {
+    const exec = () =>
+      this.api.request<T>({
+        method,
+        url,
+        data,
+        timeout: config?.timeout ?? this.api.defaults.timeout,
+        signal: config?.signal,
+        params: config?.params,
+        headers: config?.headers, // puedes seguir pasando headers aquí
+        onDownloadProgress: config?.onDownloadProgress,
+        onUploadProgress: config?.onUploadProgress,
+        responseType: config?.responseType,
+      });
+
+    const res: AxiosResponse<T> = await withRetry(exec, {
+      retries: config?.["x-retries"] ?? 2,
+      baseDelay: config?.["x-retryDelay"] ?? 400,
+    });
+    return res.data;
   }
 
-  // POST request
-  async post<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
-    const response: AxiosResponse<T> = await this.api.post(url, data, config);
-    return response.data;
+  async get<T>(url: string, config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number }): Promise<T> {
+    return this.request<T>("get", url, config);
   }
-
-  // PUT request
-  async put<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
-    const response: AxiosResponse<T> = await this.api.put(url, data, config);
-    return response.data;
+  async post<T>(url: string, data?: any, config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number }): Promise<T> {
+    return this.request<T>("post", url, config, data);
   }
-
-  // PATCH request
-  async patch<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
-    const response: AxiosResponse<T> = await this.api.patch(url, data, config);
-    return response.data;
+  async put<T>(url: string, data?: any, config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number }): Promise<T> {
+    return this.request<T>("put", url, config, data);
   }
-
-  // DELETE request
-  async delete<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
-    const response: AxiosResponse<T> = await this.api.delete(url, config);
-    return response.data;
+  async patch<T>(url: string, data?: any, config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number }): Promise<T> {
+    return this.request<T>("patch", url, config, data);
+  }
+  async delete<T>(url: string, config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number }): Promise<T> {
+    return this.request<T>("delete", url, config);
   }
 }
 

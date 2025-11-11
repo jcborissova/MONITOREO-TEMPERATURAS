@@ -1,3 +1,5 @@
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable no-empty */
 /* eslint-disable prefer-const */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -21,15 +23,15 @@ import type { Measure } from "../../types/types";
 import { CloudIcon, FireIcon, ArrowPathIcon } from "@heroicons/react/24/solid";
 
 /* =========================================
-   Helpers / tipos
+   Tipos / Helpers
 ========================================= */
 
-type RangeType = "24h" | "7d" | "30d" | "all" | "custom";
+type Quick = "24h" | "7d" | "30d" | "all" | "custom";
 
-const PRESET_DIVISIONS: Record<Exclude<RangeType, "all" | "custom">, number> = {
+const PRESET_DIVISIONS: Record<Exclude<Quick, "all" | "custom">, number> = {
   "24h": 48, // cada 30 min
-  "7d": 56,  // cada 3 h aprox
-  "30d": 60, // cada ~12 h
+  "7d": 56,  // ~cada 3 h
+  "30d": 60, // ~cada 12 h
 };
 
 type ChartRow = { ts: string; [key: string]: number | string | null };
@@ -66,38 +68,72 @@ const fmtTick = (iso: string) =>
 
 const nowMinus10m = () => Date.now() - 10 * 60 * 1000;
 const adjustEndForNow = (endMs: number) => Math.min(endMs, nowMinus10m());
+
 const dayBoundsMs = (d: Date) => {
   const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).getTime();
   return { start, end };
 };
 
+const toYMD = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const startOfDayLocal = (ymd: string) => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
+};
+
+const endOfDayLocal = (ymd: string) => {
+  const dt = startOfDayLocal(ymd);
+  dt.setHours(23, 59, 59, 999);
+  return dt;
+};
+
+const clampIsoToBounds = (iso: string, minIso: string, maxIso: string): string => {
+  const t = toSafeDate(iso).getTime();
+  const tMin = toSafeDate(minIso).getTime();
+  const tMax = toSafeDate(maxIso).getTime();
+  const clamped = Math.min(Math.max(t, tMin), tMax);
+  return new Date(clamped).toISOString();
+};
+
+const sliceToMinute = (iso?: string) => (iso ? iso.slice(0, 16) : "");
+
 /* =========================================
    Componente
 ========================================= */
 
 const MultiSensorTimelineRecharts: React.FC = () => {
-  const { sensors, historyData } = useContext(WeatherContext);
+  const {
+    sensors,
+    historyData,
+    fetchHistoryRange,
+    refreshData,
+    isRangeLoading,
+  } = useContext(WeatherContext) as any;
 
-  // Toggles
-  const [showTemp, setShowTemp] = useState(true);
-  const [showHum, setShowHum] = useState(true);
+  // -------- Controles de rango (local, como en Report) --------
+  const today = new Date();
+  const todayStr = toYMD(today);
+  const weekAgo = new Date(today.getTime() - 7 * 24 * 3600 * 1000);
+  const weekAgoStr = toYMD(weekAgo);
 
-  // Brush controlado
-  const [brushKey, setBrushKey] = useState(0);
-  const [brushRange, setBrushRange] = useState<{ startIndex?: number; endIndex?: number }>({});
+  const [quick, setQuick] = useState<Quick>("7d");
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
+    start: weekAgoStr,
+    end: todayStr,
+  });
 
-  // Filtros / Rango actual
-  const [rangeType, setRangeType] = useState<RangeType>("7d");
+  // Para "custom" con datetime-local
   const [customStart, setCustomStart] = useState<string>("");
   const [customEnd, setCustomEnd] = useState<string>("");
   const [rangeError, setRangeError] = useState<string>("");
 
-  // Líneas de referencia (inicio/fin visibles)
-  const [rangeStartIso, setRangeStartIso] = useState<string>("");
-  const [rangeEndIso, setRangeEndIso] = useState<string>("");
-
-  // Colores estables por sensor (no cambian por reorden)
+  // -------- Colores estables por sensor --------
   const colorMapRef = useRef<Record<string, string>>({});
   const colorOf = (name: string, idx: number, alpha = 1) => {
     if (!colorMapRef.current[name]) {
@@ -108,13 +144,13 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return base.replace(/,1\)$/, `,${Math.max(0, Math.min(1, alpha))})`);
   };
 
-  // ===== 1) Normaliza timeline & series crudas =====
+  // -------- Unificación de timeline cruda (según historyData cargado) --------
   const unified = useMemo(() => {
     const tsSet = new Set<string>();
 
-    sensors.forEach((s) => {
-      const key = (s as any).devEUI ?? s.name;
-      const hist: Measure[] = historyData[key] || [];
+    (sensors ?? []).forEach((s: any) => {
+      const key = s?.devEUI ?? s?.name;
+      const hist: Measure[] = (historyData?.[key] ?? []) as any[];
       for (const item of hist) {
         const raw =
           (item as any)?.timestamp ??
@@ -131,14 +167,13 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const idxOf: Record<string, number> = {};
     time.forEach((iso, i) => (idxOf[iso] = i));
 
-    const series: Record<string, { temperature: (number | null)[]; humidity: (number | null)[] }> =
-      {};
-    const labelOf = (s: any) => (s?.deviceName || s?.name || s?.devEUI || "Sensor");
+    const series: Record<string, { temperature: (number | null)[]; humidity: (number | null)[] }> = {};
+    const labelOf = (s: any) => (s?.deviceName || s?.name || s?.devEUI || "Sensor") as string;
 
-    sensors.forEach((s) => {
-      const key = (s as any).devEUI ?? s.name;
-      const label = labelOf(s);
-      const hist: Measure[] = historyData[key] || [];
+    (sensors ?? []).forEach((s: any) => {
+      const key = s?.devEUI ?? s?.name;
+      const label = String(labelOf(s)).trim() || "Sensor";
+      const hist: Measure[] = (historyData?.[key] ?? []) as any[];
 
       if (!series[label]) {
         series[label] = {
@@ -160,9 +195,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
         const tVal = clamp((item as any)?.temperature ?? (item as any)?.data?.temperature);
         const hVal = clamp(
-          (item as any)?.humedity ??
-            (item as any)?.humidity ??
-            (item as any)?.data?.humidity,
+          (item as any)?.humedity ?? (item as any)?.humidity ?? (item as any)?.data?.humidity,
           0,
           100
         );
@@ -173,16 +206,67 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
     const minIso = time[0] ?? "";
     const maxIso = time[time.length - 1] ?? "";
-    const names = sensors.map((s) => s.deviceName || s.name || (s as any).devEUI || "Sensor");
+
+    const names: string[] = (sensors ?? [])
+      .map((s: any) => (s?.deviceName || s?.name || s?.devEUI || "Sensor") as string)
+      .map((n: any) => String(n).trim())
+      .filter((n: string | any[]) => n.length > 0);
 
     return { time, series, minIso, maxIso, names };
   }, [sensors, historyData]);
 
-  // ===== 2) Construye data re-muestreada =====
+  // -------- Ventana actual en ms (según quick/dateRange/custom) --------
+  const windowMs = useMemo(() => {
+    if (quick === "custom" && customStart && customEnd) {
+      const s = toSafeDate(customStart).getTime();
+      const e = adjustEndForNow(toSafeDate(customEnd).getTime());
+      return [s, e] as const;
+    }
+
+    if (quick === "all") {
+      const has = !!unified.minIso && !!unified.maxIso;
+      const endMs = adjustEndForNow(has ? toSafeDate(unified.maxIso).getTime() : Date.now());
+      const startMs = has ? toSafeDate(unified.minIso).getTime() : endMs - 30 * 24 * 3600 * 1000;
+      return [startMs, endMs] as const;
+    }
+
+    // 24h / 7d / 30d usan dateRange (YYYY-MM-DD) como en Report
+    const s = startOfDayLocal(dateRange.start).getTime();
+    const e = endOfDayLocal(dateRange.end).getTime();
+    // Si el final incluye hoy, recorta 10 minutos
+    const { start: todayStart, end: todayEnd } = dayBoundsMs(new Date());
+    const includesToday = e >= todayStart && s <= todayEnd;
+    const endAdj = includesToday ? adjustEndForNow(e) : e;
+    return [s, endAdj] as const;
+  }, [quick, dateRange.start, dateRange.end, customStart, customEnd, unified.minIso, unified.maxIso]);
+
+  // -------- Helpers para pedir rango (ISO) en fetch --------
+  const computeRangeISO = (): { fromISO: string; toISO: string } => {
+    let fromISO: string;
+    let toISO: string;
+
+    if (quick === "custom" && customStart && customEnd) {
+      fromISO = toSafeDate(customStart).toISOString();
+      toISO = toSafeDate(customEnd).toISOString();
+    } else if (quick === "all") {
+      // Para "Todo": 90 días hacia atrás respecto a ahora
+      const to = new Date();
+      const from = new Date(to.getTime() - 90 * 24 * 3600 * 1000);
+      fromISO = from.toISOString();
+      toISO = to.toISOString();
+    } else {
+      fromISO = startOfDayLocal(dateRange.start).toISOString();
+      toISO = endOfDayLocal(dateRange.end).toISOString();
+    }
+    return { fromISO, toISO };
+  };
+
+  // -------- Re-muestreo a bins --------
   const [binnedData, setBinnedData] = useState<ChartRow[]>([]);
-  const [sensorNames, setSensorNames] = useState<string[]>([]);
-  const [inputMin, setInputMin] = useState<string>("");
-  const [inputMax, setInputMax] = useState<string>("");
+  const [rangeStartIso, setRangeStartIso] = useState<string>("");
+  const [rangeEndIso, setRangeEndIso] = useState<string>("");
+  const [brushKey, setBrushKey] = useState(0);
+  const [brushRange, setBrushRange] = useState<{ startIndex?: number; endIndex?: number }>({});
 
   type Point = { t: number; temp: number | null; hum: number | null };
 
@@ -192,7 +276,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     endMs: number,
     names: string[]
   ) => {
-    // evita duplicar si ya coincide el primer/último ts
     const first = rows[0]?.ts;
     const last = rows[rows.length - 1]?.ts;
 
@@ -217,42 +300,50 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
   const buildBinnedData = (
     startMs: number,
-    endMs: number,
-    divisions: number
+    endMs: number
   ): { rows: ChartRow[]; startIso: string; endIso: string } => {
-    const names = sensorNames.length ? sensorNames : unified.names;
+    const names: string[] = unified.names;
     const dur = Math.max(1, endMs - startMs);
+    const divisions =
+      dur <= 24 * 3600 * 1000
+        ? PRESET_DIVISIONS["24h"]
+        : dur <= 7 * 24 * 3600 * 1000
+        ? PRESET_DIVISIONS["7d"]
+        : PRESET_DIVISIONS["30d"];
+
     const step = Math.max(1, Math.floor(dur / Math.max(1, divisions)));
     const rows: ChartRow[] = [];
 
     const hasRaw = unified.time.length > 0;
     const sensorPoints: Record<string, Point[]> = {};
-    names.forEach((name) => (sensorPoints[name] = []));
+    names.forEach((name: string) => (sensorPoints[name] = []));
 
     if (hasRaw) {
-      const nameList = Object.keys(unified.series).length ? Object.keys(unified.series) : names;
+      const nameList: string[] = Object.keys(unified.series).length
+        ? Object.keys(unified.series)
+        : names;
       unified.time.forEach((iso, idx) => {
         const t = toSafeDate(iso).getTime();
-        nameList.forEach((name) => {
+        if (t < startMs || t > endMs) return;
+        nameList.forEach((name: string) => {
           const s = unified.series[name];
           if (!s) return;
           const temp = s.temperature[idx];
           const hum = s.humidity[idx];
           if (temp == null && hum == null) return;
-          sensorPoints[name] ??= [];
-          sensorPoints[name].push({ t, temp, hum });
+          (sensorPoints[name] ??= []).push({ t, temp, hum });
         });
       });
     }
 
-    for (let b = 0, t0 = startMs; t0 < endMs; b++, t0 += step) {
+    for (let t0 = startMs; t0 < endMs; t0 += step) {
       const bStart = t0;
       const bEnd = Math.min(endMs, t0 + step);
       const tsMid = new Date(bStart + (bEnd - bStart) / 2).toISOString();
 
       const row: ChartRow = { ts: tsMid };
 
-      names.forEach((name) => {
+      names.forEach((name: string) => {
         if (!hasRaw || !sensorPoints[name]?.length) {
           row[`${name} °C`] = null;
           row[`${name} %RH`] = null;
@@ -271,269 +362,130 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       });
 
       rows.push(row);
-      if (b > divisions * 2) break; // seguro ante desbordes
     }
 
     const startIso = new Date(startMs).toISOString();
     const endIso = new Date(endMs).toISOString();
-    const rowsWithBoundaries = ensureBoundaryRows(rows, startMs, endMs, names);
-
-    return { rows: rowsWithBoundaries, startIso, endIso };
+    const withBounds = ensureBoundaryRows(rows, startMs, endMs, names);
+    return { rows: withBounds, startIso, endIso };
   };
 
-  // ===== Helpers para Custom =====
-  const sliceToMinute = (iso?: string) => (iso ? iso.slice(0, 16) : "");
-  const clampIsoToBounds = (iso: string, minIso: string, maxIso: string): string => {
-    const t = toSafeDate(iso).getTime();
-    const tMin = toSafeDate(minIso).getTime();
-    const tMax = toSafeDate(maxIso).getTime();
-    const clamped = Math.min(Math.max(t, tMin), tMax);
-    return new Date(clamped).toISOString();
-  };
-
-  const initCustomFromData = () => {
-    if (!unified.minIso || !unified.maxIso) return;
-
-    const sIso = unified.minIso;
-    const eIso = unified.maxIso;
-
-    setInputMin(sliceToMinute(sIso));
-    setInputMax(sliceToMinute(eIso));
-
-    const startMs = toSafeDate(sIso).getTime();
-    let endMs = toSafeDate(eIso).getTime();
-    endMs = adjustEndForNow(endMs);
-
-    const dur = endMs - startMs;
-    const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
-
-    const { rows, startIso, endIso } = buildBinnedData(startMs, endMs, divisions);
-    setBinnedData(rows);
-    setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
-    setRangeStartIso(startIso);
-    setRangeEndIso(endIso);
-    setBrushKey((k) => k + 1);
-    setRangeError("");
-  };
-
-  // ===== Inicializa (7d y “ahora - 10m”) =====
+  // -------- Fetch del histórico cuando cambia el rango --------
   useEffect(() => {
-    setInputMin(unified.minIso ? sliceToMinute(unified.minIso) : "");
-    setInputMax(unified.maxIso ? sliceToMinute(unified.maxIso) : "");
+    const { fromISO, toISO } = computeRangeISO();
+    const load = async () => {
+      try {
+        await fetchHistoryRange?.({ from: fromISO, to: toISO, pageSize: 500, maxPages: 50 });
+      } catch {/* noop */}
+    };
+    load();
+  }, [quick, dateRange.start, dateRange.end, customStart, customEnd, fetchHistoryRange]);
 
-    const end = adjustEndForNow(Date.now());
-    const start = end - 7 * 24 * 3_600_000;
-
-    setSensorNames(unified.names);
-
-    const { rows, startIso, endIso } = buildBinnedData(start, end, PRESET_DIVISIONS["7d"]);
-    setBinnedData(rows);
-    setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
-    setRangeStartIso(startIso);
-    setRangeEndIso(endIso);
-    setBrushKey((k) => k + 1);
-    setRangeType("7d");
-    setRangeError("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unified.minIso, unified.maxIso, unified.names.length]);
-
-  // ===== 3) Quick ranges (ajuste “ahora - 10m”) =====
-  const applyQuickRange = (rt: RangeType) => {
-    setRangeType(rt);
-    setRangeError("");
-
-    const now = Date.now();
-
-    if (rt === "all") {
-      const hasData = !!unified.minIso && !!unified.maxIso;
-      const startMs = hasData ? toSafeDate(unified.minIso).getTime() : now - 30 * 24 * 3_600_000;
-      const rawEndMs = hasData ? toSafeDate(unified.maxIso).getTime() : now;
-      const endMs = adjustEndForNow(rawEndMs);
-
-      const dur = endMs - startMs;
-      const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
-
-      const { rows, startIso, endIso } = buildBinnedData(startMs, endMs, divisions);
-      setBinnedData(rows);
-      setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
-      setRangeStartIso(startIso);
-      setRangeEndIso(endIso);
-      setBrushKey((k) => k + 1);
+  // -------- Recalcular líneas cuando hay data o cambia la ventana --------
+  useEffect(() => {
+    const [startMs, endMs] = windowMs;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      setBinnedData([]);
+      setBrushRange({});
       return;
     }
-
-    if (rt === "custom") {
-      initCustomFromData();
-      return;
-    }
-
-    const hours = rt === "24h" ? 24 : rt === "7d" ? 7 * 24 : 30 * 24;
-    const divisions = PRESET_DIVISIONS[rt];
-    const endMs = adjustEndForNow(now);
-    const startMs = endMs - hours * 3_600_000;
-
-    const { rows, startIso, endIso } = buildBinnedData(startMs, endMs, divisions);
+    const { rows, startIso, endIso } = buildBinnedData(startMs, endMs);
     setBinnedData(rows);
-    setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
     setRangeStartIso(startIso);
     setRangeEndIso(endIso);
+    // proteger índices del Brush
+    const endIdx = Math.max(0, rows.length - 1);
+    setBrushRange({ startIndex: 0, endIndex: endIdx });
     setBrushKey((k) => k + 1);
+  }, [windowMs[0], windowMs[1], unified.time.join("|")]);
+
+  // -------- Autorefresco cada 10 min si incluye hoy (re-fetch + rebuild) --------
+  useEffect(() => {
+    const [s, e] = windowMs;
+    const { start: tS, end: tE } = dayBoundsMs(new Date());
+    const includesToday = e >= tS && s <= tE;
+    if (!includesToday) return;
+
+    const tick = async () => {
+      try {
+        // 1) refrescar sensores rápidos (estado/batería)
+        await refreshData?.();
+        // 2) volver a pedir histórico del mismo rango (traer nuevos puntos)
+        const { fromISO, toISO } = computeRangeISO();
+        await fetchHistoryRange?.({ from: fromISO, to: toISO, pageSize: 500, maxPages: 50 });
+        // 3) reconstruir bins con el nuevo "ahora" recortado 10 min
+        const [startMs] = windowMs;
+        const { rows, startIso, endIso } = buildBinnedData(startMs, adjustEndForNow(Date.now()));
+        setBinnedData(rows);
+        setRangeStartIso(startIso);
+        setRangeEndIso(endIso);
+        setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
+        setBrushKey((k) => k + 1);
+      } catch {}
+    };
+
+    const bucket = 10 * 60 * 1000;
+    const id = window.setInterval(tick, bucket);
+    return () => window.clearInterval(id);
+  }, [windowMs[0], windowMs[1], refreshData, fetchHistoryRange, quick, dateRange.start, dateRange.end, customStart, customEnd]);
+
+  // -------- UI: acciones de rango --------
+  const applyQuick = (k: Quick) => {
+    setRangeError("");
+    if (k === "24h") {
+      const end = new Date();
+      const start = new Date(end.getTime() - 24 * 3600 * 1000);
+      setDateRange({ start: toYMD(start), end: toYMD(end) });
+      setQuick("24h");
+    } else if (k === "7d") {
+      const end = new Date();
+      const start = new Date(end.getTime() - 7 * 24 * 3600 * 1000);
+      setDateRange({ start: toYMD(start), end: toYMD(end) });
+      setQuick("7d");
+    } else if (k === "30d") {
+      const end = new Date();
+      const start = new Date(end.getTime() - 30 * 24 * 3600 * 1000);
+      setDateRange({ start: toYMD(start), end: toYMD(end) });
+      setQuick("30d");
+    } else if (k === "all") {
+      setQuick("all");
+    } else {
+      setQuick("custom");
+    }
   };
 
-  // ===== 4) Custom =====
-  const applyCustomRange = () => {
+  const applyCustomFromInputs = () => {
     setRangeError("");
-
     if (!customStart || !customEnd) {
-      setRangeError("Completa ambas fechas.");
+      setRangeError("Completa ambas fechas y horas.");
       return;
     }
-
-    const startMs = toSafeDate(customStart).getTime();
-    let endMs = toSafeDate(customEnd).getTime();
-    endMs = adjustEndForNow(endMs);
-
-    if (!(endMs > startMs)) {
+    const s = toSafeDate(customStart);
+    const e = toSafeDate(customEnd);
+    if (!(e.getTime() > s.getTime())) {
       setRangeError("El rango es inválido (fin debe ser > inicio).");
       return;
     }
-
-    const dur = endMs - startMs;
-    const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
-
-    const { rows, startIso, endIso } = buildBinnedData(startMs, endMs, divisions);
-    setBinnedData(rows);
-    setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
-    setRangeStartIso(startIso);
-    setRangeEndIso(endIso);
-    setBrushKey((k) => k + 1);
+    setQuick("custom");
   };
 
-  // ===== 5) Tooltip =====
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (!active) return null;
-    const ts = typeof label === "string" ? new Date(label) : null;
-    return (
-      <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700 max-w-[280px]">
-        {ts && (
-          <p className="font-semibold text-gray-900 mb-1">
-            {ts.toLocaleString("es-DO", {
-              weekday: "short",
-              day: "2-digit",
-              month: "short",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
-        )}
-        <div className="space-y-0.5">
-          {(payload ?? []).map((p: any, i: number) => {
-            const name: string = p?.name ?? "";
-            const v = typeof p?.value === "number" ? p.value : null;
-            if (v == null) return null;
-            const isTemp = name.endsWith("°C");
-            return (
-              <div key={i} className="flex items-center gap-2">
-                <span className="inline-block w-2.5 h-2.5 rounded" style={{ background: p.color }} />
-                <span className="text-gray-600">{name}:</span>
-                <span className="font-semibold text-gray-900">
-                  {v.toFixed(1)} {isTemp ? "°C" : "%"}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
+  // -------- Toggles de series --------
+  const [showTemp, setShowTemp] = useState(true);
+  const [showHum, setShowHum] = useState(true);
 
-  // ===== 6) Reset =====
   const resetBrush = () => {
-    setBrushRange({ startIndex: 0, endIndex: Math.max(0, binnedData.length - 1) });
+    const endIdx = Math.max(0, binnedData.length - 1);
+    setBrushRange({ startIndex: 0, endIndex: endIdx });
     setBrushKey((k) => k + 1);
     setRangeError("");
   };
 
-  // ===== 7) AUTO-REFRESH si el rango involucra la fecha actual =====
-  useEffect(() => {
-    const today = new Date();
-    const { start: todayStartMs, end: todayEndMs } = dayBoundsMs(today);
-
-    const computeCurrentRange = ():
-      | { startMs: number; endMs: number; divisions: number; isLive: boolean }
-      | null => {
-      const now = Date.now();
-
-      if (rangeType === "all") {
-        if (!unified.minIso || !unified.maxIso) return null;
-        const startMs = toSafeDate(unified.minIso).getTime();
-        const endMs = adjustEndForNow(toSafeDate(unified.maxIso).getTime());
-        const dur = endMs - startMs;
-        const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
-        const isLive = startMs <= todayEndMs && endMs >= todayStartMs;
-        return { startMs, endMs, divisions, isLive };
-      }
-
-      if (rangeType === "custom" && customStart && customEnd) {
-        const startMs = toSafeDate(customStart).getTime();
-        const endMs = adjustEndForNow(toSafeDate(customEnd).getTime());
-        const dur = endMs - startMs;
-        const divisions = dur <= 24 * 3_600_000 ? 48 : dur <= 7 * 24 * 3_600_000 ? 56 : 60;
-        const isLive = startMs <= todayEndMs && endMs >= todayStartMs;
-        return { startMs, endMs, divisions, isLive };
-      }
-
-      // Presets
-      const hours = rangeType === "24h" ? 24 : rangeType === "7d" ? 7 * 24 : 30 * 24;
-      const divisions = PRESET_DIVISIONS[rangeType as Exclude<RangeType, "all" | "custom">];
-      const endMs = adjustEndForNow(now);
-      const startMs = endMs - hours * 3_600_000;
-      const isLive = startMs <= todayEndMs && endMs >= todayStartMs;
-      return { startMs, endMs, divisions, isLive };
-    };
-
-    const conf = computeCurrentRange();
-    if (!conf) return;
-
-    const rebuild = () => {
-      const next = computeCurrentRange() ?? conf;
-      const { rows, startIso, endIso } = buildBinnedData(next.startMs, next.endMs, next.divisions);
-      setBinnedData(rows);
-      setBrushRange({ startIndex: 0, endIndex: Math.max(0, rows.length - 1) });
-      setRangeStartIso(startIso);
-      setRangeEndIso(endIso);
-      setBrushKey((k) => k + 1);
-    };
-
-    if (!conf.isLive) return;
-
-    // Alinear al próximo múltiplo de 10 min
-    const bucket = 10 * 60 * 1000;
-    const now = Date.now();
-    const msToNext = bucket - (now % bucket);
-
-    const startTimeout = window.setTimeout(() => {
-      rebuild();
-      const interval = window.setInterval(rebuild, bucket);
-      (rebuild as any).__interval = interval;
-    }, msToNext);
-
-    const onVis = () => {
-      if (document.visibilityState === "visible") rebuild();
-    };
-    document.addEventListener("visibilitychange", onVis);
-
-    return () => {
-      window.clearTimeout(startTimeout);
-      const interval = (rebuild as any).__interval as number | undefined;
-      if (interval) window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [rangeType, customStart, customEnd, unified.minIso, unified.maxIso]);
+  // -------- Render --------
+  const isLoading = !!isRangeLoading;
 
   return (
     <div className="w-full min-w-0">
-      {/* Controles */}
+      {/* Controles superiores */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3">
         <button
           onClick={() => setShowTemp((v) => !v)}
@@ -560,14 +512,14 @@ const MultiSensorTimelineRecharts: React.FC = () => {
           <ArrowPathIcon className="w-4 h-4" /> Reset vista
         </button>
 
-        {/* Quick ranges */}
+        {/* Quick ranges (local, sin depender del Context) */}
         <div className="flex flex-wrap items-center gap-1 sm:gap-2 ml-auto">
-          {(["24h", "7d", "30d", "all", "custom"] as RangeType[]).map((opt) => (
+          {(["24h", "7d", "30d", "all", "custom"] as Quick[]).map((opt) => (
             <button
               key={opt}
-              onClick={() => applyQuickRange(opt)}
+              onClick={() => applyQuick(opt)}
               className={`px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs rounded-full font-medium border transition ${
-                rangeType === opt
+                quick === opt
                   ? "bg-gray-900 text-white border-gray-900"
                   : "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
               }`}
@@ -591,16 +543,16 @@ const MultiSensorTimelineRecharts: React.FC = () => {
         </div>
       </div>
 
-      {/* Custom range */}
+      {/* Controles de rango personalizado (datetime-local) */}
       <div className="mb-3">
         <div className="relative">
           <div className="min-h-[48px] sm:min-h-[56px]" />
           <div
-            aria-hidden={rangeType !== "custom"}
+            aria-hidden={quick !== "custom"}
             className={[
               "absolute inset-0 flex flex-wrap items-end gap-2 sm:gap-3",
-              "transition-all duration-300 ease-out will-change-transform will-change-opacity",
-              rangeType === "custom"
+              "transition-all duration-300 ease-out",
+              quick === "custom"
                 ? "opacity-100 translate-y-0"
                 : "opacity-0 -translate-y-1 pointer-events-none",
             ].join(" ")}
@@ -610,17 +562,11 @@ const MultiSensorTimelineRecharts: React.FC = () => {
               <input
                 type="datetime-local"
                 value={customStart}
-                min={inputMin || undefined}
-                max={(customEnd || inputMax) || undefined}
                 onChange={(e) => {
-                  const val = e.target.value;
-                  if (!unified.minIso || !unified.maxIso) return;
-                  const clampedIso = clampIsoToBounds(val, unified.minIso, unified.maxIso);
-                  const clampedVal = clampedIso.slice(0, 16);
-                  if (customEnd && toSafeDate(clampedVal) > toSafeDate(customEnd)) {
-                    setCustomEnd(clampedVal);
-                  }
-                  setCustomStart(clampedVal);
+                  const minIso = unified.minIso || new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+                  const maxIso = unified.maxIso || new Date().toISOString();
+                  const clamped = clampIsoToBounds(e.target.value, minIso, maxIso);
+                  setCustomStart(sliceToMinute(clamped));
                   setRangeError("");
                 }}
                 className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
@@ -631,24 +577,18 @@ const MultiSensorTimelineRecharts: React.FC = () => {
               <input
                 type="datetime-local"
                 value={customEnd}
-                min={(customStart || inputMin) || undefined}
-                max={inputMax || undefined}
                 onChange={(e) => {
-                  const val = e.target.value;
-                  if (!unified.minIso || !unified.maxIso) return;
-                  const clampedIso = clampIsoToBounds(val, unified.minIso, unified.maxIso);
-                  const clampedVal = clampedIso.slice(0, 16);
-                  if (customStart && toSafeDate(clampedVal) < toSafeDate(customStart)) {
-                    setCustomStart(clampedVal);
-                  }
-                  setCustomEnd(clampedVal);
+                  const minIso = unified.minIso || new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+                  const maxIso = unified.maxIso || new Date().toISOString();
+                  const clamped = clampIsoToBounds(e.target.value, minIso, maxIso);
+                  setCustomEnd(sliceToMinute(clamped));
                   setRangeError("");
                 }}
                 className="border rounded-md px-2 py-1 text-xs sm:text-sm text-gray-700 focus:ring-2 focus:ring-blue-400"
               />
             </div>
             <button
-              onClick={applyCustomRange}
+              onClick={applyCustomFromInputs}
               className="h-[34px] sm:h-[38px] px-3 py-1.5 rounded-md text-xs sm:text-sm bg-gray-900 text-white hover:bg-black"
             >
               Aplicar rango
@@ -660,106 +600,178 @@ const MultiSensorTimelineRecharts: React.FC = () => {
         </div>
       </div>
 
-      {/* Gráfico */}
+      {/* Gráfico + overlay de carga */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-3 sm:p-4 md:p-6">
-        <div className="w-full h-[360px] sm:h-[420px] md:h-[480px] lg:h-[520px] min-w-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={binnedData} margin={{ top: 12, right: 16, left: 8, bottom: 8 }}>
-              <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
-              <XAxis
-                dataKey="ts"
-                tick={{ fontSize: 11, fill: "#6b7280" }}
-                minTickGap={24}
-                tickFormatter={(v: string) => fmtTick(v)}
-              />
-              <YAxis
-                yAxisId="temp"
-                domain={[-40, 110]}
-                tick={{ fontSize: 11, fill: "#1f2937" }}
-                tickFormatter={(v) => `${v}°C`}
-                width={48}
-              />
-              <YAxis
-                yAxisId="hum"
-                orientation="right"
-                domain={[0, 100]}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 11, fill: "#065f46" }}
-                tickFormatter={(v) => `${v}%`}
-                width={48}
-              />
+        {/* Chip superior de estado */}
+        {isRangeLoading && (
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs border-blue-200 bg-blue-50 text-blue-700">
+            <ArrowPathIcon className="w-4 h-4 animate-spin" />
+            Cargando rango…
+          </div>
+        )}
 
-              <Tooltip content={<CustomTooltip />} />
-              <Legend verticalAlign="bottom" wrapperStyle={{ paddingTop: 8 }} iconType="circle" />
+        <div
+          className="relative w-full h-[360px] sm:h-[420px] md:h-[480px] lg:h-[520px] min-w-0"
+          aria-busy={isLoading}
+          aria-live="polite"
+        >
+          {/* Capa de desenfoque sobre el gráfico mientras carga */}
+          <div
+            className={[
+              "absolute inset-0 z-[1] transition-opacity duration-200 pointer-events-none",
+              isLoading ? "opacity-100" : "opacity-0",
+            ].join(" ")}
+            style={{
+              backdropFilter: isLoading ? "blur(2px)" : "none",
+              WebkitBackdropFilter: isLoading ? "blur(2px)" : "none",
+              background: isLoading ? "rgba(255,255,255,0.35)" : "transparent",
+              borderRadius: "1rem",
+            }}
+          />
 
-              {/* Bandas sugeridas */}
-              <ReferenceArea yAxisId="temp" y1={24} y2={30} fill="#EFF6FF" fillOpacity={0.35} />
-              <ReferenceArea yAxisId="hum" y1={40} y2={60} fill="#ECFDF5" fillOpacity={0.25} />
+          {/* Overlay con spinner y texto (bloquea interacciones) */}
+          {isLoading && (
+            <div className="absolute inset-0 z-[2] flex items-center justify-center">
+              <div className="flex items-center gap-3 px-3 py-2 rounded-full bg-white/85 border border-gray-200 shadow-sm text-sm text-gray-700">
+                <ArrowPathIcon className="w-5 h-5 animate-spin text-blue-600" />
+                Trayendo datos…
+              </div>
+            </div>
+          )}
 
-              {/* Líneas de referencia de inicio/fin */}
-              {rangeStartIso && (
-                <ReferenceLine x={rangeStartIso} stroke="#9CA3AF" strokeDasharray="3 3" />
-              )}
-              {rangeEndIso && (
-                <ReferenceLine x={rangeEndIso} stroke="#9CA3AF" strokeDasharray="3 3" />
-              )}
+          {/* Contenedor del gráfico */}
+          <div className={["relative z-0 h-full transition", isLoading ? "pointer-events-none select-none" : ""].join(" ")}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={binnedData} margin={{ top: 12, right: 16, left: 8, bottom: 8 }}>
+                <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="ts"
+                  tick={{ fontSize: 11, fill: "#6b7280" }}
+                  minTickGap={24}
+                  tickFormatter={(v: string) => fmtTick(v)}
+                />
+                <YAxis
+                  yAxisId="temp"
+                  domain={[-40, 110]}
+                  tick={{ fontSize: 11, fill: "#1f2937" }}
+                  tickFormatter={(v) => `${v}°C`}
+                  width={48}
+                />
+                <YAxis
+                  yAxisId="hum"
+                  orientation="right"
+                  domain={[0, 100]}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 11, fill: "#065f46" }}
+                  tickFormatter={(v) => `${v}%`}
+                  width={48}
+                />
 
-              {/* Series */}
-              {(sensorNames.length ? sensorNames : unified.names).map((name, idx) => {
-                const c = colorOf(name, idx, 1);
-                return (
-                  <React.Fragment key={name}>
-                    {showTemp && (
-                      <Line
-                        type="monotone"
-                        yAxisId="temp"
-                        dataKey={`${name} °C`}
-                        name={`${name} °C`}
-                        stroke={c}
-                        strokeWidth={2}
-                        dot={false}
-                        isAnimationActive
-                        animationDuration={600}
-                        connectNulls
-                      />
-                    )}
-                    {showHum && (
-                      <Line
-                        type="monotone"
-                        yAxisId="hum"
-                        dataKey={`${name} %RH`}
-                        name={`${name} %RH`}
-                        stroke={c}
-                        strokeDasharray="6 4"
-                        strokeWidth={1.5}
-                        dot={false}
-                        isAnimationActive
-                        animationDuration={600}
-                        connectNulls
-                      />
-                    )}
-                  </React.Fragment>
-                );
-              })}
+                <Tooltip
+                  content={({ active, payload, label }: any) => {
+                    if (!active) return null;
+                    const ts = typeof label === "string" ? new Date(label) : null;
+                    return (
+                      <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700 max-w-[280px]">
+                        {ts && (
+                          <p className="font-semibold text-gray-900 mb-1">
+                            {ts.toLocaleString("es-DO", {
+                              weekday: "short",
+                              day: "2-digit",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        )}
+                        <div className="space-y-0.5">
+                          {(payload ?? []).map((p: any, i: number) => {
+                            const name: string = p?.name ?? "";
+                            const v = typeof p?.value === "number" ? p.value : null;
+                            if (v == null) return null;
+                            const isTemp = name.endsWith("°C");
+                            return (
+                              <div key={i} className="flex items-center gap-2">
+                                <span className="inline-block w-2.5 h-2.5 rounded" style={{ background: p.color }} />
+                                <span className="text-gray-600">{name}:</span>
+                                <span className="font-semibold text-gray-900">
+                                  {v.toFixed(1)} {isTemp ? "°C" : "%"}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
+                <Legend verticalAlign="bottom" wrapperStyle={{ paddingTop: 8 }} iconType="circle" />
 
-              {/* Brush */}
-              <Brush
-                key={brushKey}
-                dataKey="ts"
-                travellerWidth={8}
-                height={28}
-                startIndex={brushRange.startIndex}
-                endIndex={brushRange.endIndex}
-                onChange={(r: { startIndex?: number; endIndex?: number } | null) =>
-                  setBrushRange(r ?? {})
-                }
-                tickFormatter={(v: string) =>
-                  new Date(v).toLocaleDateString("es-DO", { day: "2-digit", month: "short" })
-                }
-              />
-            </LineChart>
-          </ResponsiveContainer>
+                {/* Bandas recomendadas */}
+                <ReferenceArea yAxisId="temp" y1={24} y2={30} fill="#EFF6FF" fillOpacity={0.35} />
+                <ReferenceArea yAxisId="hum" y1={40} y2={60} fill="#ECFDF5" fillOpacity={0.25} />
+
+                {/* Líneas de referencia inicio/fin */}
+                {rangeStartIso && <ReferenceLine x={rangeStartIso} stroke="#9CA3AF" strokeDasharray="3 3" />}
+                {rangeEndIso && <ReferenceLine x={rangeEndIso} stroke="#9CA3AF" strokeDasharray="3 3" />}
+
+                {/* Series */}
+                {unified.names.map((name, idx) => {
+                  const c = colorOf(name, idx, 1);
+                  return (
+                    <React.Fragment key={name}>
+                      {showTemp && (
+                        <Line
+                          type="monotone"
+                          yAxisId="temp"
+                          dataKey={`${name} °C`}
+                          name={`${name} °C`}
+                          stroke={c}
+                          strokeWidth={2}
+                          dot={false}
+                          isAnimationActive
+                          animationDuration={600}
+                          connectNulls
+                        />
+                      )}
+                      {showHum && (
+                        <Line
+                          type="monotone"
+                          yAxisId="hum"
+                          dataKey={`${name} %RH`}
+                          name={`${name} %RH`}
+                          stroke={c}
+                          strokeDasharray="6 4"
+                          strokeWidth={1.5}
+                          dot={false}
+                          isAnimationActive
+                          animationDuration={600}
+                          connectNulls
+                        />
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+
+                {/* Brush */}
+                <Brush
+                  key={brushKey}
+                  dataKey="ts"
+                  travellerWidth={8}
+                  height={28}
+                  startIndex={brushRange.startIndex}
+                  endIndex={brushRange.endIndex}
+                  onChange={(r: { startIndex?: number; endIndex?: number } | null) =>
+                    setBrushRange(r ?? {})
+                  }
+                  tickFormatter={(v: string) =>
+                    new Date(v).toLocaleDateString("es-DO", { day: "2-digit", month: "short" })
+                  }
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
     </div>

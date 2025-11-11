@@ -87,8 +87,8 @@ const parseTs = (rec: any): number => {
    Página
 ========================= */
 const ReportPage: React.FC = () => {
-  // Trae sensors para resolver el nombre desde el contexto
-  const { historyData, sensors, refreshData } = useContext(WeatherContext);
+  // Ahora usamos también fetchHistoryRange + isRangeLoading del contexto
+  const { historyData, sensors, refreshData, fetchHistoryRange, isRangeLoading } = useContext(WeatherContext);
 
   // Mapa devEUI|name -> name visible
   const nameByKey = useMemo(() => {
@@ -114,6 +114,50 @@ const ReportPage: React.FC = () => {
 
   const lastRefreshRef = useRef<Date | null>(null);
 
+  /* ------- Disparar fetch del histórico por rango ------- */
+  useEffect(() => {
+    const fromISO = startOfDayLocal(dateRange.start).toISOString();
+    const toISO = endOfDayLocal(dateRange.end).toISOString();
+    (async () => {
+      try {
+        await fetchHistoryRange({ from: fromISO, to: toISO, pageSize: 500, maxPages: 50 });
+      } catch {
+        // noop
+      }
+    })();
+  }, [dateRange.start, dateRange.end, fetchHistoryRange]);
+
+  /* ------- Al terminar el fetch de rango, log compacto por consola ------- */
+  const lastLoggedKey = useRef<string>("");
+  useEffect(() => {
+    if (isRangeLoading) return; // solo cuando termina
+    // clave simple para evitar logs repetidos con el mismo rango
+    const key = `${dateRange.start}__${dateRange.end}`;
+    if (lastLoggedKey.current === key) return;
+    lastLoggedKey.current = key;
+
+    const startMs = startOfDayLocal(dateRange.start).getTime();
+    const endMs = endOfDayLocal(dateRange.end).getTime();
+
+    const countsInRange: Record<string, number> = {};
+    for (const [sensorKey, arr] of Object.entries(historyData ?? {})) {
+      const list = Array.isArray(arr) ? arr : [];
+      let c = 0;
+      for (const rec of list) {
+        const t = parseTs(rec);
+        if (!Number.isNaN(t) && t >= startMs && t <= endMs) c++;
+      }
+      countsInRange[sensorKey] = c;
+    }
+
+    console.log("[ReportPage] Extracto listo:", {
+      from: new Date(startMs).toISOString(),
+      to: new Date(endMs).toISOString(),
+      sensors: sensors.length,
+      countsBySensorInRange: countsInRange,
+    });
+  }, [isRangeLoading, dateRange.start, dateRange.end, historyData, sensors.length]);
+
   /* ------- Control de fechas ------- */
   const handleDateChange = (type: "start" | "end", value: string) => {
     if (!value) return;
@@ -135,9 +179,16 @@ const ReportPage: React.FC = () => {
     const now = new Date();
     let start = toYMD(now);
     let end = toYMD(now);
-    if (kind === "7d") start = toYMD(new Date(now.getTime() - 7 * 24 * 3600 * 1000));
-    else if (kind === "30d") start = toYMD(new Date(now.getTime() - 30 * 24 * 3600 * 1000));
-    else if (kind === "month") start = toYMD(new Date(now.getFullYear(), now.getMonth(), 1));
+    if (kind === "today") {
+      start = toYMD(now);
+      end = toYMD(now);
+    } else if (kind === "7d") {
+      start = toYMD(new Date(now.getTime() - 7 * 24 * 3600 * 1000));
+    } else if (kind === "30d") {
+      start = toYMD(new Date(now.getTime() - 30 * 24 * 3600 * 1000));
+    } else if (kind === "month") {
+      start = toYMD(new Date(now.getFullYear(), now.getMonth(), 1));
+    }
     setRangeError(null);
     setDateRange(normalizeRange(start, end));
     setQuick(kind);
@@ -241,14 +292,22 @@ const ReportPage: React.FC = () => {
   useEffect(() => {
     const includesToday = dateRange.end === todayStr;
     if (!includesToday) return;
-    const id = setInterval(() => {
+    const id = setInterval(async () => {
       try {
-        void refreshData?.();
+        await Promise.all([
+          refreshData?.(),
+          fetchHistoryRange({
+            from: startOfDayLocal(dateRange.start).toISOString(),
+            to: endOfDayLocal(dateRange.end).toISOString(),
+            pageSize: 500,
+            maxPages: 50,
+          }),
+        ]);
         lastRefreshRef.current = new Date();
       } catch {}
     }, 10 * 60 * 1000);
     return () => clearInterval(id);
-  }, [dateRange.end, todayStr, refreshData]);
+  }, [dateRange.end, dateRange.start, todayStr, refreshData, fetchHistoryRange]);
 
   const lastRefreshHuman = useMemo(() => {
     const d = lastRefreshRef.current;
@@ -295,6 +354,22 @@ const ReportPage: React.FC = () => {
                   {b.label}
                 </button>
               ))}
+            </div>
+
+            {/* Chip de loading del rango */}
+            <div
+              className={[
+                "ml-2 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs",
+                isRangeLoading
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-gray-200 bg-gray-50 text-gray-500",
+              ].join(" ")}
+              title={isRangeLoading ? "Cargando histórico del rango…" : "Rango listo"}
+            >
+              <ArrowPathIcon
+                className={["w-4 h-4", isRangeLoading ? "animate-spin" : ""].join(" ")}
+              />
+              {isRangeLoading ? "Cargando rango…" : "Rango listo"}
             </div>
 
             {/* Bandeja inline (SOLO lg+) */}
@@ -410,9 +485,14 @@ const ReportPage: React.FC = () => {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          <ExportButton data={reportData} startDate={dateRange.start} endDate={dateRange.end} />
+          <ExportButton
+            data={reportData}
+            startDate={dateRange.start}
+            endDate={dateRange.end}
+            disabled={isRangeLoading}
+          />
           <div className="flex items-center gap-1.5 text-xs text-gray-500">
-            <ArrowPathIcon className="w-4 h-4" />
+            <ArrowPathIcon className={["w-4 h-4", isRangeLoading ? "animate-spin" : ""].join(" ")} />
             Últ. actualización: {lastRefreshHuman}
           </div>
         </div>
@@ -439,6 +519,7 @@ const ReportPage: React.FC = () => {
       {/* TABLA o EMPTY STATE elegante */}
       {reportData.length > 0 ? (
         <ReportTable
+          loading={isRangeLoading}
           data={reportData}
           /* Si tu ReportTable NO define esta prop en su tipo, quítala o ajusta el tipo del componente */
           customRenderers={{

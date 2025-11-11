@@ -1,7 +1,14 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, {
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import {
   Battery100Icon,
   Battery50Icon,
@@ -15,9 +22,63 @@ import AlertThresholdModal from "../components/devices/AlertThresholdModal";
 import DeviceDetailsModal from "../components/devices/DeviceDetailsModal";
 import ResponsiveTable from "../components/ui/ResponsiveTable";
 
-import { SensorsContext, type ConnInfo } from "../context/SensorsContext";
 import { WeatherContext } from "../context/WeatherContext";
 import type { Room, Measure } from "../types/types";
+
+/* =========================
+   Helpers de tiempo/estado
+========================= */
+type ConnInfo = {
+  isConnected: boolean;
+  last: Date | null;
+  diffMin: number;
+};
+
+const CONNECTION_THRESHOLD_MIN = 30;
+
+const toMs = (v: any): number => {
+  if (!v && v !== 0) return 0;
+  const d =
+    typeof v === "number"
+      ? new Date(v < 9_999_999_999 ? v * 1000 : v)
+      : typeof v === "string"
+      ? new Date(v.includes(" ") ? v.replace(" ", "T") : v)
+      : new Date(v);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+const latestHistoryTs = (hist?: Measure[]): number => {
+  if (!Array.isArray(hist) || hist.length === 0) return 0;
+  let max = 0;
+  for (const h of hist) {
+    const ms = toMs(
+      (h as any).timestamp ??
+        (h as any).date ??
+        (h as any).created_at ??
+        (h as any).time ??
+        (h as any).updatedAt
+    );
+    if (ms > max) max = ms;
+  }
+  return max;
+};
+
+const computeConn = (latestMs: number): ConnInfo => {
+  const recentByTime = latestMs ? Date.now() - latestMs <= CONNECTION_THRESHOLD_MIN * 60_000 : false;
+  return {
+    isConnected: recentByTime,
+    last: latestMs ? new Date(latestMs) : null,
+    diffMin: latestMs ? (Date.now() - latestMs) / 60_000 : Infinity,
+  };
+};
+
+const getSmartConnectionLocal = (room: Room, history?: Measure[]): ConnInfo => {
+  const latestMsFromHist = latestHistoryTs(history);
+  if (latestMsFromHist) return computeConn(latestMsFromHist);
+  const fallbackMs = Math.max(toMs((room as any).lastPowerDate), toMs((room as any).updatedAt ?? (room as any).timestamp));
+  return computeConn(fallbackMs);
+};
 
 /* =========================
    Helpers UI
@@ -147,7 +208,6 @@ const renderBattery = (level: number | undefined | null, isConnected: boolean) =
       </span>
     );
   }
-
   if (level == null || Number.isNaN(level)) return "—";
   const pct = Math.round(Number(level));
 
@@ -176,15 +236,15 @@ const renderBattery = (level: number | undefined | null, isConnected: boolean) =
    Componente principal
 ========================= */
 const DevicesPage: React.FC = () => {
-  const { sensors, refreshSensors, getSmartConnection } = useContext(SensorsContext);
-  const { historyData } = useContext(WeatherContext);
+  // ⬇️ Consumimos todo desde WeatherContext
+  const { sensors, historyData, isLoading: weatherLoading, refreshData } = useContext(WeatherContext);
 
   const [selectedDevice, setSelectedDevice] = useState<Room | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true); // carga local para el botón/overlay
   const [configDeviceId, setConfigDeviceId] = useState<string>("");
 
-  // Filtra “almacén/warehouse” de la tabla
+  // Dataset de tabla (sin “almacén/warehouse”)
   const tableData = useMemo(
     () =>
       (sensors || []).filter((s) => {
@@ -196,11 +256,11 @@ const DevicesPage: React.FC = () => {
 
   const hasData = tableData.length > 0;
 
-  // ======= FIX anti-loop: mantener referencia estable del refresco =======
-  const refreshRef = useRef(refreshSensors);
+  // ======= Referencia estable al refresco (desde WeatherContext) =======
+  const refreshRef = useRef(refreshData);
   useEffect(() => {
-    refreshRef.current = refreshSensors;
-  }, [refreshSensors]);
+    refreshRef.current = refreshData;
+  }, [refreshData]);
 
   const isRefreshingRef = useRef(false);
   const handleRefresh = useCallback(async () => {
@@ -217,7 +277,7 @@ const DevicesPage: React.FC = () => {
     }
   }, []);
 
-  // Carga inicial
+  // Carga inicial (se apoya en refreshData del WeatherContext)
   useEffect(() => {
     handleRefresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -250,6 +310,9 @@ const DevicesPage: React.FC = () => {
     if (action === "edit") return handleOpenConfig(row);
   };
 
+  // Estado de carga combinado (global del Weather + local del botón)
+  const showLoading = weatherLoading || isLoading;
+
   return (
     <PageContainer
       title="Gestión de Dispositivos"
@@ -257,15 +320,15 @@ const DevicesPage: React.FC = () => {
     >
       {/* Toolbar */}
       <div className="flex justify-end mb-4 relative">
-        {isLoading && <div className="absolute inset-0 rounded-lg bg-white/60 backdrop-blur-[1px]" />}
-        <Button onClick={handleRefresh} disabled={isLoading}>
-          <ArrowPathIcon className={["w-5 h-5", isLoading ? "animate-spin" : ""].join(" ")} />
-          {isLoading ? "Actualizando..." : "Refrescar datos"}
+        {showLoading && <div className="absolute inset-0 rounded-lg bg-white/60 backdrop-blur-[1px]" />}
+        <Button onClick={handleRefresh} disabled={showLoading}>
+          <ArrowPathIcon className={["w-5 h-5", showLoading ? "animate-spin" : ""].join(" ")} />
+          {showLoading ? "Actualizando..." : "Refrescar datos"}
         </Button>
       </div>
 
       {/* Contenido */}
-      {isLoading ? (
+      {showLoading ? (
         <SkeletonTable />
       ) : !hasData ? (
         <EmptyState onRetry={handleRefresh} />
@@ -273,7 +336,6 @@ const DevicesPage: React.FC = () => {
         <ResponsiveTable
           title="Dispositivos Activos"
           data={tableData}
-          expandableKey="name"
           emptyMessage="No se encontraron dispositivos registrados."
           showExport
           onActionClick={handleTableAction}
@@ -306,7 +368,7 @@ const DevicesPage: React.FC = () => {
               render: (_v, row) => {
                 const key = (row.devEUI ?? row.name) as string;
                 const hist = historyData[key] as Measure[] | undefined;
-                const conn = getSmartConnection(row, hist);
+                const conn = getSmartConnectionLocal(row, hist);
                 const level = Number(
                   (row as any).battery ?? (row as any).lastPower ?? (row as any).productivity
                 );
@@ -320,7 +382,7 @@ const DevicesPage: React.FC = () => {
               render: (_v, row) => {
                 const key = (row.devEUI ?? row.name) as string;
                 const hist = historyData[key] as Measure[] | undefined;
-                const conn = getSmartConnection(row, hist);
+                const conn = getSmartConnectionLocal(row, hist);
                 return renderConnectionStatus(conn);
               },
             },
@@ -330,7 +392,7 @@ const DevicesPage: React.FC = () => {
               align: "right",
               render: (v, row) => {
                 const key = (row.devEUI ?? row.name) as string;
-                const conn = getSmartConnection(row, historyData[key] as Measure[] | undefined);
+                const conn = getSmartConnectionLocal(row, historyData[key] as Measure[] | undefined);
                 if (!conn.isConnected) return "—";
                 return v != null && !Number.isNaN(v) ? Number(v).toFixed(1) : "—";
               },
@@ -341,7 +403,7 @@ const DevicesPage: React.FC = () => {
               align: "right",
               render: (v, row) => {
                 const key = (row.devEUI ?? row.name) as string;
-                const conn = getSmartConnection(row, historyData[key] as Measure[] | undefined);
+                const conn = getSmartConnectionLocal(row, historyData[key] as Measure[] | undefined);
                 if (!conn.isConnected) return "—";
                 const h = v ?? (row as any).humidity ?? (row as any).data?.humidity ?? null;
                 return h != null && !Number.isNaN(h) ? Number(h).toFixed(1) : "—";
@@ -367,7 +429,7 @@ const DevicesPage: React.FC = () => {
       />
 
       {/* Aviso flotante de carga */}
-      {isLoading && (
+      {showLoading && (
         <div className="fixed bottom-4 right-4 px-3 py-2 rounded-lg bg-white/90 border border-gray-200 shadow-md flex items-center gap-2 backdrop-blur">
           <ArrowPathIcon className="w-4 h-4 animate-spin text-gray-600" />
           <span className="text-sm text-gray-700">Actualizando dispositivos…</span>

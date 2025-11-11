@@ -1,9 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
 "use client";
-import React, { useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, {
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { WeatherContext } from "../context/WeatherContext";
-import { SensorsContext } from "../context/SensorsContext";
+import {
+  SensorsContext,
+  // ⬇️ Importa el umbral como named export, NO desde useContext
+  CONNECTION_THRESHOLD_MIN,
+} from "../context/SensorsContext";
 
 import DashboardKPIs from "../components/dashboard/DashboardKPIs";
 import SensorCards from "../components/dashboard/SensorCards";
@@ -65,11 +76,10 @@ const EmptyState = ({ onRetry, subtitle }: { onRetry: () => void; subtitle?: str
 );
 
 /* =========================
-   Utils de resolución de histórico (idéntico en dashboard)
+   Utils de histórico
 ========================= */
 type HistoryDict = Record<string, any[]>;
 
-/** Crea un índice insensible a mayúsculas y accesos rápidos */
 const buildLooseIndex = (historyData: HistoryDict) => {
   const index = new Map<string, string>();
   for (const k of Object.keys(historyData || {})) {
@@ -79,19 +89,13 @@ const buildLooseIndex = (historyData: HistoryDict) => {
 };
 
 const pickHistory = (sensor: any, historyData: HistoryDict, looseIndex: Map<string, string>) => {
-  const cands = [
-    sensor?.devEUI,
-    sensor?.name,
-    sensor?.deviceName,
-  ]
+  const cands = [sensor?.devEUI, sensor?.name, sensor?.deviceName]
     .map((x) => (x == null ? "" : String(x)))
     .filter(Boolean);
 
-  // 1) intento exacto
-  for (const k of cands) {
-    if (historyData[k]) return historyData[k];
-  }
-  // 2) intento case-insensitive
+  // exacto
+  for (const k of cands) if (historyData[k]) return historyData[k];
+  // case-insensitive
   for (const k of cands) {
     const real = looseIndex.get(k.toLowerCase());
     if (real && historyData[real]) return historyData[real];
@@ -100,15 +104,14 @@ const pickHistory = (sensor: any, historyData: HistoryDict, looseIndex: Map<stri
 };
 
 /* =========================
-   Tablero
+   Dashboard
 ========================= */
 const Dashboard: React.FC = () => {
   const { sensors: weatherSensors, historyData, isLoading, refreshData } = useContext(WeatherContext);
-  const {
-    thresholdsByDevEui,
-    getSmartConnection,
-    CONNECTION_THRESHOLD_MIN,
-  } = useContext(SensorsContext);
+
+  // ⛔️ Antes tenías: const { thresholdsByDevEui, getSmartConnection, CONNECTION_THRESHOLD_MIN } = useContext(SensorsContext);
+  // ✅ Ahora NO saques el umbral del contexto:
+  const { thresholdsByDevEui, getSmartConnection } = useContext(SensorsContext);
 
   const dashboardRef = useRef<HTMLDivElement>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -141,14 +144,10 @@ const Dashboard: React.FC = () => {
     sensors.forEach((s) => {
       const hist = pickHistory(s, historyData, looseIndex);
       const conn = getSmartConnection(s, hist as any[]);
-
       if (conn.isConnected) connected++;
 
       const th = thresholdsByDevEui[
-        (s as any).devEUI ??
-          (s as any).name ??
-          (s as any).deviceName ??
-          ""
+        (s as any).devEUI ?? (s as any).name ?? (s as any).deviceName ?? ""
       ];
 
       const tol = th?.tolerance ?? 2;
@@ -167,11 +166,9 @@ const Dashboard: React.FC = () => {
       const tState = th ? inRange(t, th.temperature?.min, th.temperature?.max) : "ok";
       const hState = th ? inRange(h, th.humidity?.min, th.humidity?.max) : "ok";
 
-      const worst = [tState, hState].includes("crit")
-        ? "crit"
-        : [tState, hState].includes("warn")
-        ? "warn"
-        : "ok";
+      const worst =
+        [tState, hState].includes("crit") ? "crit" :
+        [tState, hState].includes("warn") ? "warn" : "ok";
 
       if (worst === "crit") crit++;
       else if (worst === "warn") warn++;
@@ -266,28 +263,20 @@ const Dashboard: React.FC = () => {
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="bg-white border border-gray-200 rounded-2xl p-4">
-                <h3 className="text-sm font-semibold text-gray-800 mb-2">
-                  Efectividad de Temperatura
-                </h3>
-                {/* MultiSensorChart internamente accede a Weather/Sensors; no necesita cambios */}
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Efectividad de Temperatura</h3>
                 <TemperatureEffectivenessChart />
               </div>
 
               <div className="bg-white border border-gray-200 rounded-2xl p-4">
-                <h3 className="text-sm font-semibold text-gray-800 mb-2">
-                  Sensores registrados
-                </h3>
-                {/* Ahora esta versión usa getSmartConnection + pickHistory */}
+                <h3 className="text-sm font-semibold text-gray-800 mb-2">Sensores registrados</h3>
                 <SensorCards
                   rooms={sensors as any}
                   loading={isLoading}
-                  liveWindowMin={CONNECTION_THRESHOLD_MIN}
+                  liveWindowMin={CONNECTION_THRESHOLD_MIN} // ← usa el named export
                   showControls
                 />
               </div>
             </div>
-
-
           </>
         )}
       </div>

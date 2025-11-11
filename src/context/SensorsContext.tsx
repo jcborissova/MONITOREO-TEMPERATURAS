@@ -1,7 +1,7 @@
-/* eslint-disable react-refresh/only-export-components */
-// src/context/SensorsContext.tsx
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { createContext, useEffect, useRef, useState, type ReactNode } from "react";
+/* eslint-disable react-refresh/only-export-components */
+import React, { createContext, useState, useEffect, type ReactNode } from "react";
 import type { Room, Measure } from "../types/types";
 import { sensorsService } from "../services/sensors.service";
 import { getAllThresholdsMap, type SensorThreshold } from "../services/thresholds.service";
@@ -15,7 +15,7 @@ export type ConnInfo = {
   recentByTime: boolean;
 };
 
-export const CONNECTION_THRESHOLD_MIN = 30;
+export const CONNECTION_THRESHOLD_MIN = 5;
 
 /* ============ utils de tiempo ============ */
 const toMs = (v: any): number => {
@@ -28,23 +28,6 @@ const toMs = (v: any): number => {
       : new Date(v);
   const ms = d.getTime();
   return Number.isFinite(ms) ? ms : 0;
-};
-
-const latestHistoryTs = (hist?: Measure[]): number => {
-  if (!Array.isArray(hist) || hist.length === 0) return 0;
-  // soporta múltiples nombres de campo
-  let max = 0;
-  for (const h of hist) {
-    const ms = toMs(
-      (h as any).timestamp ??
-        (h as any).date ??
-        (h as any).created_at ??
-        (h as any).time ??
-        (h as any).updatedAt
-    );
-    if (ms > max) max = ms;
-  }
-  return max;
 };
 
 const computeConnectionFromMs = (latestMs: number, status?: string, thresholdMin = CONNECTION_THRESHOLD_MIN): ConnInfo => {
@@ -63,21 +46,14 @@ const computeConnectionFromMs = (latestMs: number, status?: string, thresholdMin
 /* ============ context ============ */
 interface SensorsContextProps {
   sensors: Room[];
-  history: Record<string, Measure[]>;
-  connectionById: Record<string, ConnInfo>;
   thresholdsByDevEui: Record<string, SensorThreshold>;
   getConnection: (idOrRoom: string | Room) => ConnInfo;
-  /** usa histórico si se provee; si no hay, cae a updatedAt/lastPowerDate/timestamp */
   getSmartConnection: (idOrRoom: string | Room, historyOverride?: Measure[]) => ConnInfo;
   refreshSensors: () => Promise<void>;
-  getSensorHistory: (devEUI: string) => Promise<void>;
-  CONNECTION_THRESHOLD_MIN: number;
 }
 
 export const SensorsContext = createContext<SensorsContextProps>({
   sensors: [],
-  history: {},
-  connectionById: {},
   thresholdsByDevEui: {},
   getConnection: () => ({
     isConnected: false,
@@ -96,20 +72,15 @@ export const SensorsContext = createContext<SensorsContextProps>({
     recentByTime: false,
   }),
   refreshSensors: async () => {},
-  getSensorHistory: async () => {},
-  CONNECTION_THRESHOLD_MIN,
 });
 
 export const SensorsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [sensors, setSensors] = useState<Room[]>([]);
-  const [history, setHistory] = useState<Record<string, Measure[]>>({});
-  const [connectionById, setConnectionById] = useState<Record<string, ConnInfo>>({});
   const [thresholdsByDevEui, setThresholdsByDevEui] = useState<Record<string, SensorThreshold>>({});
 
-  const isMounted = useRef(true);
-  const hasFetched = useRef(false);
+  const isMounted = React.useRef(true);
+  const hasFetched = React.useRef(false);
 
-  // Enriquecer solo para compatibilidad visual; la conectividad real la calcula getSmartConnection con histórico
   const enrichRooms = (list: Room[]) =>
     list.map((s) => {
       const up = toMs((s as any).updatedAt ?? (s as any).timestamp);
@@ -128,49 +99,45 @@ export const SensorsProvider: React.FC<{ children: ReactNode }> = ({ children })
         sensorsService.getAllSensors(),
         getAllThresholdsMap().catch(() => ({} as Record<string, SensorThreshold>)),
       ]);
-
       if (!Array.isArray(rawSensors)) return;
 
       const list = enrichRooms(rawSensors);
+      if (!isMounted.current) return;
       setSensors(list);
-      setConnectionById({});
       setThresholdsByDevEui(thMap);
-
-      // inicializa contenedor history
-      const init: Record<string, Measure[]> = {};
-      list.forEach((s) => (init[s.devEUI ?? s.name] = history[s.devEUI ?? s.name] ?? []));
-      setHistory(init);
     } catch (e) {
       console.error("Error obteniendo sensores/umbrales:", e);
-    }
-  };
-
-  const getSensorHistory = async (devEUI: string) => {
-    try {
-      const data = await sensorsService.getSensorHistory(devEUI);
       if (!isMounted.current) return;
-      setHistory((prev) => ({ ...prev, [devEUI]: Array.isArray(data) ? data : [] }));
-    } catch (e) {
-      console.error("Error obteniendo histórico:", e);
+      setSensors([]);
+      setThresholdsByDevEui({});
     }
   };
 
   const getConnection = (idOrRoom: string | Room): ConnInfo => {
-    const key = typeof idOrRoom === "string" ? idOrRoom : (idOrRoom.devEUI ?? idOrRoom.name);
-    // mantiene retrocompatibilidad si alguien rely en connectionById
-    const cached = connectionById[key];
-    if (cached) return cached;
-
     const room =
       typeof idOrRoom === "string"
         ? sensors.find((s) => (s.devEUI ?? s.name) === idOrRoom)
         : (idOrRoom as Room);
-
     const latestMs = toMs((room as any)?.updatedAt ?? (room as any)?.timestamp);
     return computeConnectionFromMs(latestMs, (room as any)?.status);
   };
 
-  /** <<— AQUÍ LA CLAVE: usa strictly el histórico si viene; si no, cae a campos del sensor */
+  const latestHistoryTs = (hist?: Measure[]): number => {
+    if (!Array.isArray(hist) || hist.length === 0) return 0;
+    let max = 0;
+    for (const h of hist) {
+      const ms = toMs(
+        (h as any).timestamp ??
+          (h as any).date ??
+          (h as any).created_at ??
+          (h as any).time ??
+          (h as any).updatedAt
+      );
+      if (ms > max) max = ms;
+    }
+    return max;
+  };
+
   const getSmartConnection = (idOrRoom: string | Room, historyOverride?: Measure[]): ConnInfo => {
     const room: Partial<Room> & Record<string, any> =
       typeof idOrRoom === "string"
@@ -178,11 +145,8 @@ export const SensorsProvider: React.FC<{ children: ReactNode }> = ({ children })
         : (idOrRoom as any);
 
     const latestMsFromHist = latestHistoryTs(historyOverride);
-    if (latestMsFromHist) {
-      return computeConnectionFromMs(latestMsFromHist, room?.status);
-    }
+    if (latestMsFromHist) return computeConnectionFromMs(latestMsFromHist, room?.status);
 
-    // fallback solo si NO hubo histórico
     const fallbackMs = Math.max(
       toMs(room?.lastPowerDate),
       toMs(room?.updatedAt ?? room?.timestamp)
@@ -205,14 +169,10 @@ export const SensorsProvider: React.FC<{ children: ReactNode }> = ({ children })
     <SensorsContext.Provider
       value={{
         sensors,
-        history,
-        connectionById,
         thresholdsByDevEui,
         getConnection,
         getSmartConnection,
         refreshSensors: fetchSensors,
-        getSensorHistory,
-        CONNECTION_THRESHOLD_MIN,
       }}
     >
       {children}
