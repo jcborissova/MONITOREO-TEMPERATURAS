@@ -18,7 +18,7 @@ type Thresholds = { temperature?: Range; humidity?: Range; tolerance?: number };
 interface SensorCardsProps {
   rooms: Room[];
   loading?: boolean;
-  liveWindowMin?: number; // se mantiene para UI/prop, pero conexión real usa getSmartConnection
+  liveWindowMin?: number;
   showControls?: boolean;
   onCardClick?: (room: Room) => void;
   thresholds?: Thresholds;
@@ -69,12 +69,11 @@ const formatRel = (from: Date | null) => {
 const ellipsize = (s: string, max = 42) => (s?.length > max ? s.slice(0, max - 1) + "…" : s);
 
 const toneFor = (value: number | null, range?: Range, tol = 2) => {
-  if (value == null || !Number.isFinite(value)) return { text: "text-gray-900", chip: "bg-gray-50 border-gray-200" };
+  if (value == null || !Number.isFinite(value)) return { text: "text-gray-600", chip: "bg-gray-50 border-gray-200" };
   if (!range?.min && !range?.max) return { text: "text-gray-900", chip: "bg-gray-50 border-gray-200" };
 
   const { min, max } = range;
   const near = (edge: number | undefined, v: number) => (edge == null ? false : Math.abs(v - edge) <= tol);
-
   const outBelow = min != null && value < min;
   const outAbove = max != null && value > max;
 
@@ -131,26 +130,34 @@ const SensorCard: React.FC<{
   lastSeen: Date | null;
   thresholds?: Thresholds;
   onClick?: (room: Room) => void;
-}> = ({ room, isConnected, lastSeen, thresholds, onClick }) => {
+}> = ({ room, isConnected, lastSeen, thresholds }) => {
   const name = (room as any).deviceName || room.name || "Sensor";
 
-  const temp = clampNum((room as any).temperature);
-  const hum = clampNum((room as any).humedity ?? (room as any).humidity);
+  // 1) Si NO está conectado, no mostramos datos (metrics y batería -> "—")
+  const temp = isConnected ? clampNum((room as any).temperature) : null;
+  const hum = isConnected ? clampNum((room as any).humedity ?? (room as any).humidity) : null;
 
   const battery = (() => {
+    if (!isConnected) return null;
     const v = (room as any).battery ?? (room as any).batteryPct ?? (room as any).lastPower;
     const n = Number(v);
     return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
   })();
 
-  const tTone = toneFor(temp, thresholds?.temperature, thresholds?.tolerance ?? 2);
-  const hTone = toneFor(hum, thresholds?.humidity, thresholds?.tolerance ?? 2);
+  // 2) Tonos neutros cuando está offline
+  const tTone = isConnected ? toneFor(temp, thresholds?.temperature, thresholds?.tolerance ?? 2) : { text: "text-gray-600", chip: "bg-gray-50 border-gray-200" };
+  const hTone = isConnected ? toneFor(hum, thresholds?.humidity, thresholds?.tolerance ?? 2) : { text: "text-gray-600", chip: "bg-gray-50 border-gray-200" };
+
   const accent = headerAccent(isConnected, temp, hum, thresholds);
+
+  function onCardClick(_room: Room): void {
+    throw new Error("Function not implemented.");
+  }
 
   return (
     <button
       type="button"
-      onClick={() => onClick?.(room)}
+      onClick={() => onCardClick?.(room)}
       className="group text-left rounded-xl border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
       title={name}
     >
@@ -175,6 +182,10 @@ const SensorCard: React.FC<{
           </div>
         </div>
 
+        {!isConnected && (
+          <div className="mt-2 text-[11px] text-gray-500">Sin conexión — métricas ocultas.</div>
+        )}
+
         <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
           <div className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border ${tTone.chip}`}>
             <div className="rounded-md border bg-white/60 p-1.5">
@@ -183,7 +194,7 @@ const SensorCard: React.FC<{
             <div className="min-w-0">
               <p className="text-[10px] uppercase tracking-wide text-gray-500">Temp</p>
               <p className={`font-semibold leading-5 ${tTone.text}`}>
-                {Number.isFinite(temp) ? `${(temp as number).toFixed(1)}°C` : "—"}
+                {isConnected && Number.isFinite(temp) ? `${(temp as number).toFixed(1)}°C` : "—"}
               </p>
             </div>
           </div>
@@ -195,7 +206,7 @@ const SensorCard: React.FC<{
             <div className="min-w-0">
               <p className="text-[10px] uppercase tracking-wide text-gray-500">Humedad</p>
               <p className={`font-semibold leading-5 ${hTone.text}`}>
-                {Number.isFinite(hum) ? `${(hum as number).toFixed(1)}%` : "—"}
+                {isConnected && Number.isFinite(hum) ? `${(hum as number).toFixed(1)}%` : "—"}
               </p>
             </div>
           </div>

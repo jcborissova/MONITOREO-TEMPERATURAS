@@ -1,10 +1,12 @@
-/* eslint-disable no-extra-boolean-cast */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable no-extra-boolean-cast */
+
 import apiService from "./api.service";
 import { API_ENDPOINTS, API_TIMEOUTS } from "../config/api.config";
 import type { Room, Measure } from "../types/types";
 import { sensorsLayout } from "../data/SensorsLayout";
 import { locations } from "../data/Locations";
+import { registerCache } from "./cacheRegistry";
 
 /* =========================
    Cache / De-dup
@@ -21,9 +23,10 @@ const keySensors = "ALL_SENSORS";
 /* =========================
    Límites y muestreo
 ========================= */
-const STEP_MIN = 2_000;            // punto de partida mínimo
-const MAX_LIMIT = 100_000;         // techo de seguridad (ajustable al backend)
-const SAMPLE_MINUTES = 5;          // su data nueva va cada 5 min aprox
+const STEP_MIN = 2_000;       // punto de partida mínimo
+const MAX_LIMIT = 50_000;     // techo conservador por request
+const HARD_SERVER_LIMIT = 100_000; // si hay hardcap real, ajusta
+const SAMPLE_MINUTES = 5;     // cada 5 min (≈288/día)
 
 /* =========================
    Helpers
@@ -65,22 +68,23 @@ const toSafeNum = (v: any): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Estima muestras por sensor para el rango (suponiendo cada 5 min) */
+/** Estima muestras por sensor para el rango */
 const estimatePointsPerSensor = (
   sinceISO: string,
   untilISO: string,
   sampleMinutes = SAMPLE_MINUTES,
-  headroom = 0.35 // subimos holgura para huecos grandes
+  headroom = 0.2
 ) => {
   const since = new Date(sinceISO).getTime();
   const until = new Date(untilISO).getTime();
   if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since) return 0;
+
   const msPerSample = sampleMinutes * 60_000;
   const samples = Math.ceil((until - since) / msPerSample);
   return Math.ceil(samples * (1 + headroom));
 };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /* =========================
    Mapeos
@@ -131,6 +135,17 @@ const mapApiHistoryToMeasure = (raw: any): Measure => {
 };
 
 /* =========================
+   Limpieza Exportada + Registro
+========================= */
+export const clearSensorsServiceCaches = () => {
+  cacheSensors.clear();
+  inflightSensors.clear();
+  cacheHistory.clear();
+  inflightHistory.clear();
+};
+registerCache(clearSensorsServiceCaches);
+
+/* =========================
    Servicio
 ========================= */
 export const sensorsService = {
@@ -168,25 +183,23 @@ export const sensorsService = {
       timeout: API_TIMEOUTS.normal,
     });
     const arr = unwrapArray<any>(res).map(mapApiHistoryToMeasure);
-    // Ordenamos ASC para facilitar merges
     return arr.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   },
 
   /**
-   * Rango robusto con backend que SOLO acepta `?limit=`.
-   * Estrategia:
-   *  - Pedimos con `limit` creciente (x1.8) hasta:
-   *      a) cubrir [since, until] por ambos lados (allMin <= since && allMax >= until), o
-   *      b) no crecer más el total (llegamos al borde histórico), o
-   *      c) alcanzar MAX_LIMIT.
-   *  - Filtramos client-side al rango.
-   *  - **Solo cacheamos** si logramos cobertura o si comprobamos que no hay más profundidad.
+   * Rango adaptativo robusto (aunque el back SOLO soporte `limit`):
+   * - Calcula un límite inicial según rango (muestras 5 min) con holgura 20%.
+   * - Crece EXPONENCIALMENTE (x1.7) hasta cubrir [since, until] o llegar al techo.
+   * - Filtra client-side por [since, until].
+   * - Cachea por "cobertura de rango".
    */
   async getSensorHistoryRange(
     devEUI: string,
     opts: {
       since: string; // ISO
       until: string; // ISO
+      pageSize?: number; // compat opcional
+      maxPages?: number; // compat opcional
       signal?: AbortSignal;
     }
   ): Promise<Measure[]> {
@@ -196,8 +209,14 @@ export const sensorsService = {
     const untilMs = new Date(opts.until).getTime();
     if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || untilMs < sinceMs) return [];
 
-    const estimate = estimatePointsPerSensor(opts.since, opts.until);
-    let limit = Math.max(STEP_MIN, Math.min(estimate, MAX_LIMIT));
+    const est = estimatePointsPerSensor(opts.since, opts.until, SAMPLE_MINUTES, 0.2);
+    const MAX = Math.min(MAX_LIMIT, HARD_SERVER_LIMIT);
+
+    let limit = Math.min(Math.max(STEP_MIN, est), MAX);
+    if (opts.pageSize || opts.maxPages) {
+      const legacyBase = Math.max(1, opts.pageSize ?? 500) * Math.max(1, opts.maxPages ?? 10);
+      limit = Math.min(Math.max(limit, legacyBase), MAX);
+    }
 
     const coverageKey = `${devEUI}__${opts.since}__${opts.until}__COVER`;
     const now = Date.now();
@@ -207,12 +226,10 @@ export const sensorsService = {
     const inflight = inflightHistory.get(coverageKey);
     if (inflight) return inflight;
 
-    const run = async () => {
+    const p = (async () => {
       const url = API_ENDPOINTS.SENSOR_HISTORY(devEUI);
-
       let bestFiltered: Measure[] = [];
       let previousFetched = -1;
-      let reachedDepthEnd = false;
 
       while (true) {
         const reqUrl = `${url}?limit=${limit}`;
@@ -220,11 +237,9 @@ export const sensorsService = {
           signal: opts.signal,
           timeout: API_TIMEOUTS.bigRequest,
           "x-retries": 2,
-          "x-retryDelay": 400,
+          "x-retryDelay": 500,
         });
-
         const all = unwrapArray<any>(res).map(mapApiHistoryToMeasure);
-        // Ordenamos ASC (viejo -> reciente)
         all.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
         const filtered = all.filter((m) => {
@@ -238,40 +253,31 @@ export const sensorsService = {
 
         const coversLeft = allMin <= sinceMs;
         const coversRight = allMax >= untilMs;
-        const fullCoverage = coversLeft && coversRight;
+        const coveredSpan = coversLeft && coversRight;
 
-        // Heurística de “no hay más profundidad”:
-        if (previousFetched === all.length) {
-          reachedDepthEnd = true;
+        if (coveredSpan && filtered.length > 0) break;   // cubierto con datos
+        if (coveredSpan && filtered.length === 0) {       // cubierto sin datos
+          bestFiltered = [];
+          break;
         }
+        if (previousFetched === all.length) break;        // no hay más profundidad
         previousFetched = all.length;
+        if (limit >= MAX) break;                          // techo de seguridad
 
-        // Condiciones de salida:
-        if (fullCoverage) break;
-        if (reachedDepthEnd) break;
-        if (limit >= MAX_LIMIT) break;
-
-        // siguiente salto exponencial (más agresivo para saltar huecos grandes)
-        const next = Math.min(Math.ceil(limit * 1.8), MAX_LIMIT);
+        // siguiente salto exponencial
+        const next = Math.min(Math.ceil(limit * 1.7), MAX);
         if (next === limit) break;
         limit = next;
 
         await sleep(120);
       }
 
-      // Cacheamos solo si:
-      // - Hay cobertura total, o
-      // - Verificamos que ya no hay más profundidad (evita cachear “cortes” temporales)
-      if (bestFiltered.length && (reachedDepthEnd || bestFiltered[0] && bestFiltered[bestFiltered.length - 1])) {
-        cacheHistory.set(coverageKey, { t: Date.now(), v: bestFiltered });
-      }
-
+      cacheHistory.set(coverageKey, { t: Date.now(), v: bestFiltered });
       return bestFiltered;
-    };
-
-    const p = run().finally(() => {
+    })().finally(() => {
       inflightHistory.delete(coverageKey);
     });
+
     inflightHistory.set(coverageKey, p);
     return p;
   },

@@ -12,8 +12,7 @@ import React, {
 import { WeatherContext } from "../context/WeatherContext";
 import {
   SensorsContext,
-  // ⬇️ Importa el umbral como named export, NO desde useContext
-  CONNECTION_THRESHOLD_MIN,
+  CONNECTION_THRESHOLD_MIN, // ← named export
 } from "../context/SensorsContext";
 
 import DashboardKPIs from "../components/dashboard/DashboardKPIs";
@@ -76,26 +75,19 @@ const EmptyState = ({ onRetry, subtitle }: { onRetry: () => void; subtitle?: str
 );
 
 /* =========================
-   Utils de histórico
+   Utils de histórico (index flojo para buscar por devEUI/name)
 ========================= */
 type HistoryDict = Record<string, any[]>;
-
 const buildLooseIndex = (historyData: HistoryDict) => {
   const index = new Map<string, string>();
-  for (const k of Object.keys(historyData || {})) {
-    index.set(String(k).toLowerCase(), k);
-  }
+  for (const k of Object.keys(historyData || {})) index.set(String(k).toLowerCase(), k);
   return index;
 };
-
 const pickHistory = (sensor: any, historyData: HistoryDict, looseIndex: Map<string, string>) => {
   const cands = [sensor?.devEUI, sensor?.name, sensor?.deviceName]
     .map((x) => (x == null ? "" : String(x)))
     .filter(Boolean);
-
-  // exacto
   for (const k of cands) if (historyData[k]) return historyData[k];
-  // case-insensitive
   for (const k of cands) {
     const real = looseIndex.get(k.toLowerCase());
     if (real && historyData[real]) return historyData[real];
@@ -108,9 +100,6 @@ const pickHistory = (sensor: any, historyData: HistoryDict, looseIndex: Map<stri
 ========================= */
 const Dashboard: React.FC = () => {
   const { sensors: weatherSensors, historyData, isLoading, refreshData } = useContext(WeatherContext);
-
-  // ⛔️ Antes tenías: const { thresholdsByDevEui, getSmartConnection, CONNECTION_THRESHOLD_MIN } = useContext(SensorsContext);
-  // ✅ Ahora NO saques el umbral del contexto:
   const { thresholdsByDevEui, getSmartConnection } = useContext(SensorsContext);
 
   const dashboardRef = useRef<HTMLDivElement>(null);
@@ -118,7 +107,6 @@ const Dashboard: React.FC = () => {
 
   const sensors = weatherSensors ?? [];
   const hasData = sensors.length > 0;
-
   const looseIndex = useMemo(() => buildLooseIndex(historyData || {}), [historyData]);
 
   const handleRefresh = useCallback(async () => {
@@ -131,9 +119,7 @@ const Dashboard: React.FC = () => {
     }
   }, [isRefreshing, refreshData]);
 
-  useEffect(() => {
-    if (!sensors.length) void handleRefresh();
-  }, []);
+  useEffect(() => { if (!sensors.length) void handleRefresh(); }, []);
 
   /* ========= KPIs derivados ========= */
   const kpis = useMemo(() => {
@@ -190,7 +176,6 @@ const Dashboard: React.FC = () => {
     const node = dashboardRef.current;
     try {
       const dataUrl = await toPng(node, { backgroundColor: "#ffffff", quality: 1, cacheBust: true });
-
       if (format === "image") {
         const link = document.createElement("a");
         link.download = `dashboard_${new Date().toISOString()}.png`;
@@ -256,6 +241,7 @@ const Dashboard: React.FC = () => {
               critical={kpis.crit}
               lastUpdateMs={kpis.lastUpdateMs}
             />
+
             <div className="bg-white border border-gray-200 rounded-2xl p-4">
               <h3 className="text-sm font-semibold text-gray-800 mb-3">Temperatura y Humedad por Sensor</h3>
               <MultiSensorChart />
@@ -269,12 +255,7 @@ const Dashboard: React.FC = () => {
 
               <div className="bg-white border border-gray-200 rounded-2xl p-4">
                 <h3 className="text-sm font-semibold text-gray-800 mb-2">Sensores registrados</h3>
-                <SensorCards
-                  rooms={sensors as any}
-                  loading={isLoading}
-                  liveWindowMin={CONNECTION_THRESHOLD_MIN} // ← usa el named export
-                  showControls
-                />
+                <SensorCards rooms={sensors as any} loading={isLoading} liveWindowMin={CONNECTION_THRESHOLD_MIN} showControls />
               </div>
             </div>
           </>

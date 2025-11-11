@@ -18,8 +18,8 @@ import type { ClimateData, Room, Measure } from "../types/types";
 import { locations } from "../data/Locations";
 import { sensorsService } from "../services/sensors.service";
 import { SensorsContext } from "./SensorsContext";
+import { registerCache } from "../services/cacheRegistry";
 
-/* ===== Tipos de datos locales ===== */
 interface WarehouseData {
   name: string;
   lat: number;
@@ -34,7 +34,6 @@ interface WeatherContextProps {
   warehouse: WarehouseData | null;
   sensors: Room[];
   climateData: ClimateData | null;
-  /** histórico por sensor (se va llenando con los rangos pedidos) */
   historyData: Record<string, Measure[]>;
   selectedWarehouse: string | null;
   isModalOpen: boolean;
@@ -45,10 +44,7 @@ interface WeatherContextProps {
   closeWarehousePlan: () => void;
 
   refreshData: (force?: boolean) => Promise<void>;
-  fetchHistoryRange: (opts: {
-    from: string;
-    to: string;
-  }) => Promise<void>;
+  fetchHistoryRange: (opts: { from: string; to: string }) => Promise<void>;
 }
 
 export const WeatherContext = createContext<WeatherContextProps>({
@@ -78,10 +74,9 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRangeLoading, setIsRangeLoading] = useState<boolean>(false);
 
-  /* ====== Loading visible para “rango” ====== */
+  // Loading visible del rango
   const rangeOpsRef = useRef(0);
   const rangeShowSinceRef = useRef(0);
-
   const beginRangeLoading = () => {
     if (rangeOpsRef.current === 0) {
       setIsRangeLoading(true);
@@ -98,11 +93,10 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   };
 
-  /* ====== Merge de histórico por sensor ====== */
+  // Merge por timestamp
   const mergeHistory = useCallback((prev: Measure[], next: Measure[]) => {
     if (!Array.isArray(prev) || prev.length === 0) return next.slice();
     if (!Array.isArray(next) || next.length === 0) return prev.slice();
-
     const map = new Map<number, Measure>();
     for (const r of prev) map.set(new Date(r.timestamp).getTime(), r);
     for (const r of next) map.set(new Date(r.timestamp).getTime(), r);
@@ -111,7 +105,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     );
   }, []);
 
-  /** Trae sensores + una muestra ligera (~24h) */
+  /** Sensores + muestra (~24h) */
   const fetchSensors = useCallback(async (): Promise<Room[]> => {
     setIsLoading(true);
     try {
@@ -119,7 +113,6 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
         ? sensorsFromCtx
         : await sensorsService.getAllSensors();
 
-      // Muestra de 24h para que haya algo inmediato
       const entries = await Promise.all(
         list.map(async (s) => {
           const key = s.devEUI ?? s.name;
@@ -131,7 +124,6 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
           }
         })
       );
-
       const histMap = Object.fromEntries(entries);
       setHistoryData(histMap);
       setSensors(list);
@@ -146,26 +138,22 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, [sensorsFromCtx]);
 
-  // Primer fetch
   useEffect(() => { void fetchSensors(); }, [fetchSensors]);
 
-  /** Garantiza que existan sensores antes de pedir rangos */
   const ensureSensors = useCallback(async () => {
     if (sensors.length > 0) return sensors;
     return await fetchSensors();
   }, [sensors, fetchSensors]);
 
-  /** Descarga robusta del rango para TODOS los sensores */
+  /** Descarga rango para todos los sensores (el servicio hace la cobertura por `limit`) */
   const fetchHistoryRange = useCallback(
     async (opts: { from: string; to: string }) => {
       if (!opts?.from || !opts?.to) return;
-
       const list = await ensureSensors();
       if (list.length === 0) return;
 
       beginRangeLoading();
       try {
-        // Concurrency control simple
         const keys = list.map((s) => s.devEUI ?? s.name).filter(Boolean) as string[];
         const POOL = Math.min(6, Math.max(3, Math.ceil(keys.length / 4)));
         let idx = 0;
@@ -183,9 +171,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
                 const curr = prev[devEUI] ?? [];
                 return { ...prev, [devEUI]: mergeHistory(curr, data) };
               });
-            } catch (e) {
-              // suave
-            }
+            } catch {}
             await new Promise((r) => setTimeout(r, 30));
           }
         };
@@ -198,7 +184,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     [ensureSensors, mergeHistory]
   );
 
-  /** Refresco global de lista + “muestra” */
+  /** Refresco global periódico */
   const POLL_MS = 5 * 60 * 1000;
   const lastRefreshRef = useRef<number>(0);
   const refreshingRef = useRef(false);
@@ -215,7 +201,6 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
         const latest = await sensorsService.getAllSensors(true);
         setSensors(latest);
 
-        // refresco de muestra rápida (no borra lo descargado por rangos)
         const entries = await Promise.all(
           latest.map(async (s) => {
             const key = s.devEUI ?? s.name;
@@ -229,9 +214,7 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
         );
         setHistoryData((prev) => {
           const clone = { ...prev };
-          for (const [k, sample] of entries) {
-            clone[k] = mergeHistory(clone[k] ?? [], sample);
-          }
+          for (const [k, sample] of entries) clone[k] = mergeHistory(clone[k] ?? [], sample);
           return clone;
         });
 
@@ -245,7 +228,32 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     [refreshSensorsOnly, mergeHistory]
   );
 
-  // Poller vivo entre navegaciones
+  // Registro de limpieza + rehidratación tras "caches-reset"
+  useEffect(() => {
+    const clear = () => {
+      setWarehouse(null);
+      setSensors([]);
+      setHistoryData({});
+      setClimateData(null);
+      setSelectedWarehouse(null);
+      rangeOpsRef.current = 0;
+      rangeShowSinceRef.current = 0;
+    };
+    const unregister = registerCache(clear);
+
+    const onReset = () => {
+      clear();
+      void fetchSensors();
+    };
+    window.addEventListener("caches-reset", onReset);
+
+    return () => {
+      unregister();
+      window.removeEventListener("caches-reset", onReset);
+    };
+  }, [fetchSensors]);
+
+  // Poller persistente
   useEffect(() => {
     const w = window as any;
     const create = () => {

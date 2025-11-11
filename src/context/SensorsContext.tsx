@@ -1,19 +1,26 @@
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable no-empty */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { createContext, useState, useEffect, type ReactNode } from "react";
+import React, { createContext, useEffect, useState, type ReactNode } from "react";
 import type { Room, Measure } from "../types/types";
 import { sensorsService } from "../services/sensors.service";
 import { getAllThresholdsMap, type SensorThreshold } from "../services/thresholds.service";
+import { registerCache } from "../services/cacheRegistry";
 
+/* =========================
+   Tipos/constantes de conexión
+========================= */
 export type ConnInfo = {
   isConnected: boolean;
   last: Date | null;
   diffMin: number;
-  status?: string;
-  apiSaysConnected: boolean;
-  recentByTime: boolean;
+  status?: string;             // eco del API
+  apiSaysConnected: boolean;   // bandera informativa
+  recentByTime: boolean;       // bandera real por tiempo
 };
 
-export const CONNECTION_THRESHOLD_MIN = 5;
+/** Umbral unificado de “en vivo” */
+export const CONNECTION_THRESHOLD_MIN = 30;
 
 /* ============ utils de tiempo ============ */
 const toMs = (v: any): number => {
@@ -28,6 +35,27 @@ const toMs = (v: any): number => {
   return Number.isFinite(ms) ? ms : 0;
 };
 
+const latestHistoryTs = (hist?: Measure[]): number => {
+  if (!Array.isArray(hist) || hist.length === 0) return 0;
+  let max = 0;
+  for (const h of hist) {
+    const ms = toMs(
+      (h as any).timestamp ??
+        (h as any).date ??
+        (h as any).created_at ??
+        (h as any).time ??
+        (h as any).updatedAt
+    );
+    if (ms > max) max = ms;
+  }
+  return max;
+};
+
+/** 
+ * Regla unificada:
+ *  - La conectividad REAL depende SOLO de la recencia de la última lectura (recentByTime).
+ *  - El status del API se conserva sólo como dato informativo (no vuelve “online” si está viejo).
+ */
 const computeConnectionFromMs = (
   latestMs: number,
   status?: string,
@@ -35,8 +63,9 @@ const computeConnectionFromMs = (
 ): ConnInfo => {
   const apiSaysConnected = (status ?? "").toLowerCase() === "conectado";
   const recentByTime = latestMs ? Date.now() - latestMs <= thresholdMin * 60_000 : false;
+
   return {
-    isConnected: apiSaysConnected || recentByTime,
+    isConnected: recentByTime,
     last: latestMs ? new Date(latestMs) : null,
     diffMin: latestMs ? (Date.now() - latestMs) / 60_000 : Infinity,
     status,
@@ -124,37 +153,40 @@ export const SensorsProvider: React.FC<{ children: ReactNode }> = ({ children })
     return computeConnectionFromMs(latestMs, (room as any)?.status);
   };
 
-  const latestHistoryTs = (hist?: Measure[]): number => {
-    if (!Array.isArray(hist) || hist.length === 0) return 0;
-    let max = 0;
-    for (const h of hist) {
-      const ms = toMs(
-        (h as any).timestamp ??
-          (h as any).date ??
-          (h as any).created_at ??
-          (h as any).time ??
-          (h as any).updatedAt
-      );
-      if (ms > max) max = ms;
-    }
-    return max;
-  };
-
   const getSmartConnection = (idOrRoom: string | Room, historyOverride?: Measure[]): ConnInfo => {
     const room: Partial<Room> & Record<string, any> =
       typeof idOrRoom === "string"
         ? (sensors.find((s) => (s.devEUI ?? s.name) === idOrRoom) as any) ?? {}
         : (idOrRoom as any);
 
+    // 1) Si hay histórico, la recencia se calcula a partir de él
     const latestMsFromHist = latestHistoryTs(historyOverride);
     if (latestMsFromHist) return computeConnectionFromMs(latestMsFromHist, room?.status);
 
-    const fallbackMs = Math.max(
-      toMs(room?.lastPowerDate),
-      toMs(room?.updatedAt ?? room?.timestamp)
-    );
+    // 2) Fallback: updatedAt/timestamp
+    const fallbackMs = toMs(room?.updatedAt ?? room?.timestamp);
     return computeConnectionFromMs(fallbackMs, room?.status);
   };
+
+  // Limpieza/rehidratación
+  useEffect(() => {
+    const clear = () => {
+      setSensors([]);
+      setThresholdsByDevEui({});
+    };
+    const unregister = registerCache(clear);
+
+    const onReset = () => {
+      clear();
+      void fetchSensors();
+    };
+    window.addEventListener("caches-reset", onReset);
+
+    return () => {
+      unregister();
+      window.removeEventListener("caches-reset", onReset);
+    };
+  }, []);
 
   useEffect(() => {
     isMounted.current = true;

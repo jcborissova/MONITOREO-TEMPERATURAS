@@ -8,8 +8,9 @@ import WarehousePlanModal from "./components/warehouse/WarehousePlan/WarehousePl
 import PrivateRoute from "./components/auth/PrivateRoute";
 import { GlobalLoadingProvider } from "./context/GlobalLoadingContext";
 import { useSetupLoadInterceptors } from "./utils/setupLoadInterceptors";
+import CacheBootstrap from "./app/CacheBootstrap";
 
-// 🔸 Lazy pages
+// Lazy pages
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Warehouses = lazy(() => import("./pages/Warehouses"));
 const Devices = lazy(() => import("./pages/DevicesPage"));
@@ -17,7 +18,6 @@ const ReportPage = lazy(() => import("./pages/ReportPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const Login = lazy(() => import("./pages/Login"));
 
-// Pequeño loader inline para fallback de rutas (reutiliza el overlay visual)
 const RouteFallback: React.FC = () => (
   <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-white">
     <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" />
@@ -25,13 +25,12 @@ const RouteFallback: React.FC = () => (
 );
 
 const Providers: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // instala interceptores globales una sola vez
   useSetupLoadInterceptors();
-
   return (
     <APIProvider apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY!} libraries={["maps"]}>
       <SensorsProvider>
         <WeatherProvider>
+          <CacheBootstrap /> {/* Resetea cachés si el usuario vuelve tras larga inactividad */}
           {children}
           <WarehousePlanModal />
         </WeatherProvider>
@@ -45,7 +44,6 @@ const App: React.FC = () => {
     <Router>
       <GlobalLoadingProvider>
         <Routes>
-          {/* 🔹 LOGIN fuera de layout, pero con fallback de carga */}
           <Route
             path="/login"
             element={
@@ -54,8 +52,6 @@ const App: React.FC = () => {
               </Suspense>
             }
           />
-
-          {/* 🔹 RUTAS PRIVADAS CON PROVIDERS */}
           <Route
             path="/*"
             element={
@@ -107,8 +103,6 @@ const App: React.FC = () => {
               }
             />
           </Route>
-
-          {/* 🔹 Cualquier otra ruta → redirige */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </GlobalLoadingProvider>

@@ -24,64 +24,14 @@ import ResponsiveTable from "../components/ui/ResponsiveTable";
 
 import { WeatherContext } from "../context/WeatherContext";
 import type { Room, Measure } from "../types/types";
+import {
+  SensorsContext,
+  CONNECTION_THRESHOLD_MIN, // ← umbral unificado (30 min)
+  type ConnInfo,
+} from "../context/SensorsContext";
 
 /* =========================
-   Helpers de tiempo/estado
-========================= */
-type ConnInfo = {
-  isConnected: boolean;
-  last: Date | null;
-  diffMin: number;
-};
-
-const CONNECTION_THRESHOLD_MIN = 30;
-
-const toMs = (v: any): number => {
-  if (!v && v !== 0) return 0;
-  const d =
-    typeof v === "number"
-      ? new Date(v < 9_999_999_999 ? v * 1000 : v)
-      : typeof v === "string"
-      ? new Date(v.includes(" ") ? v.replace(" ", "T") : v)
-      : new Date(v);
-  const ms = d.getTime();
-  return Number.isFinite(ms) ? ms : 0;
-};
-
-const latestHistoryTs = (hist?: Measure[]): number => {
-  if (!Array.isArray(hist) || hist.length === 0) return 0;
-  let max = 0;
-  for (const h of hist) {
-    const ms = toMs(
-      (h as any).timestamp ??
-        (h as any).date ??
-        (h as any).created_at ??
-        (h as any).time ??
-        (h as any).updatedAt
-    );
-    if (ms > max) max = ms;
-  }
-  return max;
-};
-
-const computeConn = (latestMs: number): ConnInfo => {
-  const recentByTime = latestMs ? Date.now() - latestMs <= CONNECTION_THRESHOLD_MIN * 60_000 : false;
-  return {
-    isConnected: recentByTime,
-    last: latestMs ? new Date(latestMs) : null,
-    diffMin: latestMs ? (Date.now() - latestMs) / 60_000 : Infinity,
-  };
-};
-
-const getSmartConnectionLocal = (room: Room, history?: Measure[]): ConnInfo => {
-  const latestMsFromHist = latestHistoryTs(history);
-  if (latestMsFromHist) return computeConn(latestMsFromHist);
-  const fallbackMs = Math.max(toMs((room as any).lastPowerDate), toMs((room as any).updatedAt ?? (room as any).timestamp));
-  return computeConn(fallbackMs);
-};
-
-/* =========================
-   Helpers UI
+   UI helpers
 ========================= */
 const Button = ({
   children,
@@ -236,15 +186,14 @@ const renderBattery = (level: number | undefined | null, isConnected: boolean) =
    Componente principal
 ========================= */
 const DevicesPage: React.FC = () => {
-  // ⬇️ Consumimos todo desde WeatherContext
   const { sensors, historyData, isLoading: weatherLoading, refreshData } = useContext(WeatherContext);
+  const { getSmartConnection } = useContext(SensorsContext);
 
   const [selectedDevice, setSelectedDevice] = useState<Room | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true); // carga local para el botón/overlay
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [configDeviceId, setConfigDeviceId] = useState<string>("");
 
-  // Dataset de tabla (sin “almacén/warehouse”)
   const tableData = useMemo(
     () =>
       (sensors || []).filter((s) => {
@@ -256,11 +205,8 @@ const DevicesPage: React.FC = () => {
 
   const hasData = tableData.length > 0;
 
-  // ======= Referencia estable al refresco (desde WeatherContext) =======
   const refreshRef = useRef(refreshData);
-  useEffect(() => {
-    refreshRef.current = refreshData;
-  }, [refreshData]);
+  useEffect(() => { refreshRef.current = refreshData; }, [refreshData]);
 
   const isRefreshingRef = useRef(false);
   const handleRefresh = useCallback(async () => {
@@ -269,19 +215,13 @@ const DevicesPage: React.FC = () => {
     try {
       setIsLoading(true);
       await Promise.resolve(refreshRef.current?.());
-    } catch (e) {
-      console.error("Error al refrescar dispositivos:", e);
     } finally {
       setIsLoading(false);
       isRefreshingRef.current = false;
     }
   }, []);
 
-  // Carga inicial (se apoya en refreshData del WeatherContext)
-  useEffect(() => {
-    handleRefresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { handleRefresh(); }, []); // carga inicial
 
   const handleViewDetails = (row: Room) => {
     const keyByEui = row.devEUI ?? null;
@@ -310,13 +250,12 @@ const DevicesPage: React.FC = () => {
     if (action === "edit") return handleOpenConfig(row);
   };
 
-  // Estado de carga combinado (global del Weather + local del botón)
   const showLoading = weatherLoading || isLoading;
 
   return (
     <PageContainer
       title="Gestión de Dispositivos"
-      description="Monitorea los sensores y configura umbrales de temperatura y humedad."
+      description={`Monitorea los sensores y configura umbrales (ventana en vivo: ${CONNECTION_THRESHOLD_MIN} min).`}
     >
       {/* Toolbar */}
       <div className="flex justify-end mb-4 relative">
@@ -368,7 +307,7 @@ const DevicesPage: React.FC = () => {
               render: (_v, row) => {
                 const key = (row.devEUI ?? row.name) as string;
                 const hist = historyData[key] as Measure[] | undefined;
-                const conn = getSmartConnectionLocal(row, hist);
+                const conn = getSmartConnection(row, hist);
                 const level = Number(
                   (row as any).battery ?? (row as any).lastPower ?? (row as any).productivity
                 );
@@ -376,13 +315,13 @@ const DevicesPage: React.FC = () => {
               },
             },
             {
-              key: "updatedAt",
+              key: "estado",
               label: "Estado",
               align: "left",
               render: (_v, row) => {
                 const key = (row.devEUI ?? row.name) as string;
                 const hist = historyData[key] as Measure[] | undefined;
-                const conn = getSmartConnectionLocal(row, hist);
+                const conn = getSmartConnection(row, hist);
                 return renderConnectionStatus(conn);
               },
             },
@@ -392,7 +331,7 @@ const DevicesPage: React.FC = () => {
               align: "right",
               render: (v, row) => {
                 const key = (row.devEUI ?? row.name) as string;
-                const conn = getSmartConnectionLocal(row, historyData[key] as Measure[] | undefined);
+                const conn = getSmartConnection(row, historyData[key] as Measure[] | undefined);
                 if (!conn.isConnected) return "—";
                 return v != null && !Number.isNaN(v) ? Number(v).toFixed(1) : "—";
               },
@@ -403,7 +342,7 @@ const DevicesPage: React.FC = () => {
               align: "right",
               render: (v, row) => {
                 const key = (row.devEUI ?? row.name) as string;
-                const conn = getSmartConnectionLocal(row, historyData[key] as Measure[] | undefined);
+                const conn = getSmartConnection(row, historyData[key] as Measure[] | undefined);
                 if (!conn.isConnected) return "—";
                 const h = v ?? (row as any).humidity ?? (row as any).data?.humidity ?? null;
                 return h != null && !Number.isNaN(h) ? Number(h).toFixed(1) : "—";
@@ -428,7 +367,6 @@ const DevicesPage: React.FC = () => {
         onClose={() => setConfigDeviceId("")}
       />
 
-      {/* Aviso flotante de carga */}
       {showLoading && (
         <div className="fixed bottom-4 right-4 px-3 py-2 rounded-lg bg-white/90 border border-gray-200 shadow-md flex items-center gap-2 backdrop-blur">
           <ArrowPathIcon className="w-4 h-4 animate-spin text-gray-600" />
