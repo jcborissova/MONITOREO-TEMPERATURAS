@@ -375,9 +375,9 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return { rows: withBounds, startIso, endIso };
   };
 
-  // -------- FIX: pedir histórico cuando cambia el rango **y** cuando hay sensores ------
+  // -------- Pedir histórico cuando cambia el rango **y** cuando hay sensores ------
   useEffect(() => {
-    if (!sensorsReady) return; // <- evita primer disparo vacío
+    if (!sensorsReady) return;
     const { fromISO, toISO } = computeRangeISO();
     const load = async () => {
       try {
@@ -482,7 +482,88 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     setRangeError("");
   };
 
-  const isLoading = !!isRangeLoading;
+  /* ================================
+     DETECCIÓN DE HUECOS (≥ 60 min)
+  ================================= */
+  const GAP_MINUTES = 60;
+  const GAP_MS = GAP_MINUTES * 60 * 1000;
+
+  type GapSpan = { startIso: string; endIso: string; durationMin: number };
+
+  const [noDataSpans, setNoDataSpans] = useState<GapSpan[]>([]);
+
+  const recomputeNoDataSpans = React.useCallback(() => {
+    const [startMs, endMs] = windowMs;
+    const rawTimes = unified.time
+      .map((iso) => toSafeDate(iso).getTime())
+      .filter((t) => t >= startMs && t <= endMs)
+      .sort((a, b) => a - b);
+
+    const spans: GapSpan[] = [];
+    let prev = startMs;
+
+    // Si no hubo ningún punto en toda la ventana
+    if (rawTimes.length === 0) {
+      if (endMs - startMs >= GAP_MS) {
+        spans.push({
+          startIso: new Date(startMs).toISOString(),
+          endIso: new Date(endMs).toISOString(),
+          durationMin: Math.round((endMs - startMs) / 60000),
+        });
+      }
+      setNoDataSpans(spans);
+      return;
+    }
+
+    // Gap inicial
+    if (rawTimes[0] - startMs >= GAP_MS) {
+      spans.push({
+        startIso: new Date(startMs).toISOString(),
+        endIso: new Date(rawTimes[0]).toISOString(),
+        durationMin: Math.round((rawTimes[0] - startMs) / 60000),
+      });
+    }
+    prev = rawTimes[0];
+
+    // Gaps intermedios
+    for (let i = 1; i < rawTimes.length; i++) {
+      const t = rawTimes[i];
+      if (t - prev >= GAP_MS) {
+        spans.push({
+          startIso: new Date(prev).toISOString(),
+          endIso: new Date(t).toISOString(),
+          durationMin: Math.round((t - prev) / 60000),
+        });
+      }
+      prev = t;
+    }
+
+    // Gap final
+    if (endMs - rawTimes[rawTimes.length - 1] >= GAP_MS) {
+      spans.push({
+        startIso: new Date(rawTimes[rawTimes.length - 1]).toISOString(),
+        endIso: new Date(endMs).toISOString(),
+        durationMin: Math.round((endMs - rawTimes[rawTimes.length - 1]) / 60000),
+      });
+    }
+
+    setNoDataSpans(spans);
+  }, [windowMs[0], windowMs[1], unified.time.join("|")]);
+
+  useEffect(() => {
+    recomputeNoDataSpans();
+  }, [recomputeNoDataSpans]);
+
+  const isInGap = (iso: string) => {
+    const t = toSafeDate(iso).getTime();
+    return noDataSpans.some(
+      (g) => toSafeDate(g.startIso).getTime() <= t && t <= toSafeDate(g.endIso).getTime()
+    );
+  };
+
+  const worstGapMin = noDataSpans.length
+    ? Math.max(...noDataSpans.map((g) => g.durationMin))
+    : 0;
 
   return (
     <div className="w-full min-w-0">
@@ -539,6 +620,21 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
           <span className="ml-1 px-2 py-1 rounded-full text-[11px] sm:text-xs bg-indigo-50 text-indigo-700 border border-indigo-100">
             Puntos: {binnedData.length}
+          </span>
+
+          <span
+            className={`ml-1 px-2 py-1 rounded-full text-[11px] sm:text-xs border ${
+              noDataSpans.length
+                ? "bg-amber-50 text-amber-800 border-amber-200"
+                : "bg-emerald-50 text-emerald-700 border-emerald-200"
+            }`}
+            title={
+              noDataSpans.length
+                ? `Mayores huecos sin reporte: ${worstGapMin} min`
+                : "Sin huecos ≥ 60 min"
+            }
+          >
+            {noDataSpans.length ? `Huecos: ${noDataSpans.length}` : "Sin huecos ≥60m"}
           </span>
         </div>
       </div>
@@ -668,8 +764,12 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                   content={({ active, payload, label }: any) => {
                     if (!active) return null;
                     const ts = typeof label === "string" ? new Date(label) : null;
+                    const gap = typeof label === "string" && isInGap(label);
+
+                    const rows = (payload ?? []).filter((p: any) => typeof p?.value === "number");
+
                     return (
-                      <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700 max-w-[280px]">
+                      <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700 max-w-[300px]">
                         {ts && (
                           <p className="font-semibold text-gray-900 mb-1">
                             {ts.toLocaleString("es-DO", {
@@ -681,8 +781,18 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                             })}
                           </p>
                         )}
+
+                        {gap && (
+                          <div className="mb-2 px-2 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200 text-xs">
+                            Sin reportes de sensores en este periodo (≥ {GAP_MINUTES} min)
+                          </div>
+                        )}
+
                         <div className="space-y-0.5">
-                          {(payload ?? []).map((p: any, i: number) => {
+                          {rows.length === 0 && !gap && (
+                            <div className="text-xs text-gray-500">Sin datos en este punto</div>
+                          )}
+                          {rows.map((p: any, i: number) => {
                             const name: string = p?.name ?? "";
                             const v = typeof p?.value === "number" ? p.value : null;
                             if (v == null) return null;
@@ -708,6 +818,18 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 <ReferenceArea yAxisId="temp" y1={24} y2={30} fill="#EFF6FF" fillOpacity={0.35} />
                 <ReferenceArea yAxisId="hum" y1={40} y2={60} fill="#ECFDF5" fillOpacity={0.25} />
 
+                {/* Bandas de NO DATA (x1/x2) */}
+                {noDataSpans.map((g, i) => (
+                  <ReferenceArea
+                    key={`gap-${i}`}
+                    x1={g.startIso}
+                    x2={g.endIso}
+                    fill="#6B7280"
+                    fillOpacity={0.12}
+                    strokeOpacity={0}
+                  />
+                ))}
+
                 {/* Líneas de referencia inicio/fin */}
                 {rangeStartIso && <ReferenceLine x={rangeStartIso} stroke="#9CA3AF" strokeDasharray="3 3" />}
                 {rangeEndIso && <ReferenceLine x={rangeEndIso} stroke="#9CA3AF" strokeDasharray="3 3" />}
@@ -728,7 +850,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                           dot={false}
                           isAnimationActive
                           animationDuration={600}
-                          connectNulls
+                          /* Importante para ver cortes */
+                          connectNulls={false}
                         />
                       )}
                       {showHum && (
@@ -743,7 +866,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                           dot={false}
                           isAnimationActive
                           animationDuration={600}
-                          connectNulls
+                          connectNulls={false}
                         />
                       )}
                     </React.Fragment>
@@ -767,6 +890,13 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 />
               </LineChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* Leyenda breve para el usuario */}
+          <div className="mt-2 text-[11px] text-gray-500">
+            <span className="inline-block align-middle w-3 h-3 rounded-sm mr-1" style={{ background: "rgba(107,114,128,0.12)" }} />
+            Bandas grises = periodos sin reporte (≥ {GAP_MINUTES} min)
+            {noDataSpans.length ? ` · Mayor hueco: ${worstGapMin} min` : ""}
           </div>
         </div>
       </div>
