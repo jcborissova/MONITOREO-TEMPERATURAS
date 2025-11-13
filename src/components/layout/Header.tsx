@@ -16,25 +16,37 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
           <button
             onClick={toggleSidebar}
             className="flex-shrink-0 p-2 rounded-md hover:bg-gray-100 text-gray-600 lg:hidden"
-            aria-label="Abrir menú"
+            aria-label={ "Abrir menú lateral" }
           >
             <Bars3Icon className="w-6 h-6" />
           </button>
 
-          {/* Título truncable */}
-          <h1 className="flex-1 min-w-0 text-base sm:text-lg md:text-xl font-bold text-gray-800 truncate">
-            Warehouse Monitoring
-          </h1>
-
-          {/* Actions */}
-          <div className="flex items-center gap-2 sm:gap-4">
-            <NotificationBell />
-            <div className="flex items-center gap-2 text-gray-700 hover:text-red-600 transition cursor-pointer">
-              <UserCircleIcon className="w-7 h-7 sm:w-8 sm:h-8 text-gray-600" />
-              <span className="hidden sm:inline text-sm font-medium">
-                Bienvenido <span className="font-semibold">Admin</span>
-              </span>
+          {/* Título + subtítulo (sin logo) */}
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center min-w-0">
+              <h1 className="flex-1 min-w-0 text-sm sm:text-base md:text-lg font-semibold text-gray-900 truncate">
+                Warehouse Monitoring
+              </h1>
             </div>
+            <p className="hidden sm:block text-[11px] text-gray-500 truncate">
+              Panel de control · temperatura, humedad y alertas
+            </p>
+          </div>
+
+          {/* Actions derecha */}
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-3">
+            <NotificationBell />
+
+            {/* Chip usuario, compacto y responsive */}
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-gray-200 bg-white px-2 py-1.5 sm:px-3 hover:border-green-200 hover:bg-green-50/70 hover:text-green-700 transition text-gray-700"
+            >
+              <UserCircleIcon className="w-6 h-6 sm:w-7 sm:h-7 text-gray-500" />
+              <span className="hidden xs:inline text-xs sm:text-sm font-medium">
+                Admin
+              </span>
+            </button>
           </div>
         </div>
       </div>

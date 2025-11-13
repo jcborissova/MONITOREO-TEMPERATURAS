@@ -2,7 +2,7 @@
 
 export interface LocationInfo {
   name: string;
-  position: [number, number]; // [lat, lng]
+  position: [number, number];
   address: string;
   phone: string;
   hours: string;
@@ -11,11 +11,11 @@ export interface LocationInfo {
 
 export const locations: LocationInfo[] = [
   {
-    name: "Almacén Principal Agrofem",
-    position: [19.532478, -70.837610],
-    address: "Estancia del Yaque, Villa González, Santiago, República Dominicana",
-    phone: "809-555-9876", 
+    name: "Smart Electric Solution - Almacén Principal",
+    position: [18.4861, -69.9312], // Santo Domingo (random en RD)
+    address: "Av. Industrial, Santo Domingo, República Dominicana",
+    phone: "809-555-1234",
     hours: "Lunes a Viernes 8:00 AM - 6:00 PM",
-    imageUrl: "/assets/images/agrofem.png",
+    imageUrl: "/assets/images/smart-electric-solution.png",
   },
 ];

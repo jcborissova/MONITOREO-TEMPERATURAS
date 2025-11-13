@@ -46,7 +46,7 @@ const WarehousePopup: React.FC<Props> = ({
 
       <div className="flex items-center gap-3">
         <img
-          src="/assets/images/agrofem.png"
+          src="/assets/images/smart-electric-solution.png"
           alt="Logo"
           className="w-9 h-9 rounded-full border object-cover"
         />

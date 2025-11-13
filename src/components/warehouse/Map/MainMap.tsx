@@ -94,9 +94,9 @@ const MainMap: React.FC<Props> = ({ mapId }) => {
               onClick={() => setSelectedIdx(i)}
             >
               <img
-                src={w.imageUrl || "/assets/images/agrofem.png"}
+                src={w.imageUrl || "/assets/images/smart-electric-solution.png"}
                 alt={w.name}
-                onError={(e) => ((e.currentTarget.src = "/assets/images/agrofem.png"))}
+                onError={(e) => ((e.currentTarget.src = "/assets/images/smart-electric-solution.png"))}
                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 border-white shadow-md object-cover bg-white"
               />
             </AdvancedMarker>

@@ -4,7 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -13,7 +13,6 @@ import {
   Tooltip,
   LineChart,
   Line,
-  Legend,
   Brush,
   ReferenceArea,
   ReferenceLine,
@@ -29,9 +28,9 @@ import { CloudIcon, FireIcon, ArrowPathIcon } from "@heroicons/react/24/solid";
 type Quick = "24h" | "7d" | "30d" | "all" | "custom";
 
 const PRESET_DIVISIONS: Record<Exclude<Quick, "all" | "custom">, number> = {
-  "24h": 48, // cada 30 min
-  "7d": 56,  // ~cada 3 h
-  "30d": 60, // ~cada 12 h
+  "24h": 144,
+  "7d": 504,
+  "30d": 1440,
 };
 
 type ChartRow = { ts: string; [key: string]: number | string | null };
@@ -116,10 +115,9 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     isRangeLoading,
   } = useContext(WeatherContext) as any;
 
-  // ---------- FIX: esperar a que haya sensores ----------
-  const sensorsReady = (Array.isArray(sensors) && sensors.length > 0);
+  const sensorsReady = Array.isArray(sensors) && sensors.length > 0;
 
-  // -------- Controles de rango (local, como en Report) --------
+  // -------- Controles de rango --------
   const today = new Date();
   const todayStr = toYMD(today);
   const weekAgo = new Date(today.getTime() - 7 * 24 * 3600 * 1000);
@@ -131,12 +129,10 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     end: todayStr,
   });
 
-  // Forzar un refresh inicial (estado y “sample”)
   useEffect(() => {
     void refreshData?.(true);
   }, []);
 
-  // Para "custom" con datetime-local
   const [customStart, setCustomStart] = useState<string>("");
   const [customEnd, setCustomEnd] = useState<string>("");
   const [rangeError, setRangeError] = useState<string>("");
@@ -152,7 +148,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return base.replace(/,1\)$/, `,${Math.max(0, Math.min(1, alpha))})`);
   };
 
-  // -------- Unificación de timeline cruda --------
+  // -------- Unificación de timeline --------
   const unified = useMemo(() => {
     const tsSet = new Set<string>();
 
@@ -354,12 +350,20 @@ const MultiSensorTimelineRecharts: React.FC = () => {
           row[`${name} %RH`] = null;
           return;
         }
-        let sumT = 0, cntT = 0;
-        let sumH = 0, cntH = 0;
+        let sumT = 0,
+          cntT = 0;
+        let sumH = 0,
+          cntH = 0;
         for (const p of sensorPoints[name]) {
           if (p.t >= bStart && p.t < bEnd) {
-            if (typeof p.temp === "number") { sumT += p.temp; cntT++; }
-            if (typeof p.hum === "number") { sumH += p.hum; cntH++; }
+            if (typeof p.temp === "number") {
+              sumT += p.temp;
+              cntT++;
+            }
+            if (typeof p.hum === "number") {
+              sumH += p.hum;
+              cntH++;
+            }
           }
         }
         row[`${name} °C`] = cntT ? sumT / cntT : null;
@@ -375,19 +379,19 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return { rows: withBounds, startIso, endIso };
   };
 
-  // -------- Pedir histórico cuando cambia el rango **y** cuando hay sensores ------
+  // -------- Pedir histórico --------
   useEffect(() => {
     if (!sensorsReady) return;
     const { fromISO, toISO } = computeRangeISO();
     const load = async () => {
       try {
         await fetchHistoryRange?.({ from: fromISO, to: toISO, pageSize: 500, maxPages: 50 });
-      } catch {/* noop */}
+      } catch {}
     };
     load();
   }, [sensorsReady, quick, dateRange.start, dateRange.end, customStart, customEnd, fetchHistoryRange]);
 
-  // -------- Recalcular líneas cuando hay data o cambia la ventana --------
+  // -------- Recalcular líneas --------
   useEffect(() => {
     const [startMs, endMs] = windowMs;
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
@@ -471,9 +475,47 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     setQuick("custom");
   };
 
-  // -------- Toggles --------
+  // -------- Toggles globales (Temp / Hum) --------
   const [showTemp, setShowTemp] = useState(true);
   const [showHum, setShowHum] = useState(true);
+
+  // -------- Toggles por serie (por sensor / métrica) --------
+  type MetricKey = string; // `${name} °C` o `${name} %RH`
+  const [hiddenSeries, setHiddenSeries] = useState<Record<MetricKey, boolean>>({});
+
+  const toggleSeries = useCallback((key: MetricKey) => {
+    setHiddenSeries((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  }, []);
+
+  const isSeriesVisible = (key: MetricKey) => !hiddenSeries[key];
+
+  // Items para la leyenda interactiva
+  const legendItems = useMemo(() => {
+    const items: { id: MetricKey; color: string; label: string; kind: "temp" | "hum" }[] = [];
+    unified.names.forEach((name, idx) => {
+      const c = colorOf(name, idx, 1);
+      if (showTemp) {
+        items.push({
+          id: `${name} °C`,
+          color: c,
+          label: `${name} °C`,
+          kind: "temp",
+        });
+      }
+      if (showHum) {
+        items.push({
+          id: `${name} %RH`,
+          color: c,
+          label: `${name} %RH`,
+          kind: "hum",
+        });
+      }
+    });
+    return items;
+  }, [unified.names, showTemp, showHum]);
 
   const resetBrush = () => {
     const endIdx = Math.max(0, binnedData.length - 1);
@@ -492,7 +534,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
   const [noDataSpans, setNoDataSpans] = useState<GapSpan[]>([]);
 
-  const recomputeNoDataSpans = React.useCallback(() => {
+  const recomputeNoDataSpans = useCallback(() => {
     const [startMs, endMs] = windowMs;
     const rawTimes = unified.time
       .map((iso) => toSafeDate(iso).getTime())
@@ -502,7 +544,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const spans: GapSpan[] = [];
     let prev = startMs;
 
-    // Si no hubo ningún punto en toda la ventana
     if (rawTimes.length === 0) {
       if (endMs - startMs >= GAP_MS) {
         spans.push({
@@ -515,7 +556,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       return;
     }
 
-    // Gap inicial
     if (rawTimes[0] - startMs >= GAP_MS) {
       spans.push({
         startIso: new Date(startMs).toISOString(),
@@ -525,7 +565,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     }
     prev = rawTimes[0];
 
-    // Gaps intermedios
     for (let i = 1; i < rawTimes.length; i++) {
       const t = rawTimes[i];
       if (t - prev >= GAP_MS) {
@@ -538,7 +577,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       prev = t;
     }
 
-    // Gap final
     if (endMs - rawTimes[rawTimes.length - 1] >= GAP_MS) {
       spans.push({
         startIso: new Date(rawTimes[rawTimes.length - 1]).toISOString(),
@@ -659,7 +697,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 type="datetime-local"
                 value={customStart}
                 onChange={(e) => {
-                  const minIso = unified.minIso || new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+                  const minIso =
+                    unified.minIso || new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
                   const maxIso = unified.maxIso || new Date().toISOString();
                   const clamped = clampIsoToBounds(e.target.value, minIso, maxIso);
                   setCustomStart(sliceToMinute(clamped));
@@ -674,7 +713,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 type="datetime-local"
                 value={customEnd}
                 onChange={(e) => {
-                  const minIso = unified.minIso || new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+                  const minIso =
+                    unified.minIso || new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
                   const maxIso = unified.maxIso || new Date().toISOString();
                   const clamped = clampIsoToBounds(e.target.value, minIso, maxIso);
                   setCustomEnd(sliceToMinute(clamped));
@@ -696,7 +736,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
         </div>
       </div>
 
-      {/* Gráfico + overlay de carga */}
+      {/* Gráfico */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-3 sm:p-4 md:p-6">
         {isRangeLoading && (
           <div className="mb-2 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs border-blue-200 bg-blue-50 text-blue-700">
@@ -732,7 +772,12 @@ const MultiSensorTimelineRecharts: React.FC = () => {
             </div>
           )}
 
-          <div className={["relative z-0 h-full transition", isRangeLoading ? "pointer-events-none select-none" : ""].join(" ")}>
+          <div
+            className={[
+              "relative z-0 h-full transition",
+              isRangeLoading ? "pointer-events-none select-none" : "",
+            ].join(" ")}
+          >
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={binnedData} margin={{ top: 12, right: 16, left: 8, bottom: 8 }}>
                 <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
@@ -799,7 +844,10 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                             const isTemp = name.endsWith("°C");
                             return (
                               <div key={i} className="flex items-center gap-2">
-                                <span className="inline-block w-2.5 h-2.5 rounded" style={{ background: p.color }} />
+                                <span
+                                  className="inline-block w-2.5 h-2.5 rounded"
+                                  style={{ background: p.color }}
+                                />
                                 <span className="text-gray-600">{name}:</span>
                                 <span className="font-semibold text-gray-900">
                                   {v.toFixed(1)} {isTemp ? "°C" : "%"}
@@ -812,7 +860,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                     );
                   }}
                 />
-                <Legend verticalAlign="bottom" wrapperStyle={{ paddingTop: 8 }} iconType="circle" />
 
                 {/* Bandas recomendadas */}
                 <ReferenceArea yAxisId="temp" y1={24} y2={30} fill="#EFF6FF" fillOpacity={0.35} />
@@ -831,42 +878,48 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                 ))}
 
                 {/* Líneas de referencia inicio/fin */}
-                {rangeStartIso && <ReferenceLine x={rangeStartIso} stroke="#9CA3AF" strokeDasharray="3 3" />}
-                {rangeEndIso && <ReferenceLine x={rangeEndIso} stroke="#9CA3AF" strokeDasharray="3 3" />}
+                {rangeStartIso && (
+                  <ReferenceLine x={rangeStartIso} stroke="#9CA3AF" strokeDasharray="3 3" />
+                )}
+                {rangeEndIso && (
+                  <ReferenceLine x={rangeEndIso} stroke="#9CA3AF" strokeDasharray="3 3" />
+                )}
 
-                {/* Series */}
+                {/* Series por sensor / métrica */}
                 {unified.names.map((name, idx) => {
                   const c = colorOf(name, idx, 1);
+                  const tempKey: MetricKey = `${name} °C`;
+                  const humKey: MetricKey = `${name} %RH`;
                   return (
                     <React.Fragment key={name}>
-                      {showTemp && (
+                      {showTemp && isSeriesVisible(tempKey) && (
                         <Line
                           type="monotone"
                           yAxisId="temp"
-                          dataKey={`${name} °C`}
-                          name={`${name} °C`}
+                          dataKey={tempKey}
+                          name={tempKey}
                           stroke={c}
                           strokeWidth={2}
                           dot={false}
                           isAnimationActive
                           animationDuration={600}
-                          /* Importante para ver cortes */
-                          connectNulls={false}
+                          // IMPORTANTE: líneas continuas
+                          connectNulls={true}
                         />
                       )}
-                      {showHum && (
+                      {showHum && isSeriesVisible(humKey) && (
                         <Line
                           type="monotone"
                           yAxisId="hum"
-                          dataKey={`${name} %RH`}
-                          name={`${name} %RH`}
+                          dataKey={humKey}
+                          name={humKey}
                           stroke={c}
                           strokeDasharray="6 4"
                           strokeWidth={1.5}
                           dot={false}
                           isAnimationActive
                           animationDuration={600}
-                          connectNulls={false}
+                          connectNulls={true}
                         />
                       )}
                     </React.Fragment>
@@ -885,16 +938,51 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                     setBrushRange(r ?? {})
                   }
                   tickFormatter={(v: string) =>
-                    new Date(v).toLocaleDateString("es-DO", { day: "2-digit", month: "short" })
+                    new Date(v).toLocaleDateString("es-DO", {
+                      day: "2-digit",
+                      month: "short",
+                    })
                   }
                 />
               </LineChart>
             </ResponsiveContainer>
           </div>
+        </div>
 
-          {/* Leyenda breve para el usuario */}
-          <div className="mt-2 text-[11px] text-gray-500">
-            <span className="inline-block align-middle w-3 h-3 rounded-sm mr-1" style={{ background: "rgba(107,114,128,0.12)" }} />
+        {/* Leyenda interactiva abajo: apagar/encender categorías */}
+        <div className="mt-3 space-y-2">
+          <div className="flex flex-wrap gap-2 text-[11px] sm:text-xs">
+            {legendItems.map((item) => {
+              const disabled = hiddenSeries[item.id];
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => toggleSeries(item.id)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] sm:text-xs transition ${
+                    disabled
+                      ? "bg-gray-50 text-gray-400 border-gray-200 line-through"
+                      : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                  }`}
+                >
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full"
+                    style={{
+                      background: disabled ? "#e5e7eb" : item.color,
+                      border: "1px solid rgba(0,0,0,0.06)",
+                    }}
+                  />
+                  <span className="truncate max-w-[120px] sm:max-w-[160px]">{item.label}</span>
+                  {disabled && <span className="text-[10px] text-gray-400">oculto</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="text-[11px] text-gray-500">
+            <span
+              className="inline-block align-middle w-3 h-3 rounded-sm mr-1"
+              style={{ background: "rgba(107,114,128,0.12)" }}
+            />
             Bandas grises = periodos sin reporte (≥ {GAP_MINUTES} min)
             {noDataSpans.length ? ` · Mayor hueco: ${worstGapMin} min` : ""}
           </div>

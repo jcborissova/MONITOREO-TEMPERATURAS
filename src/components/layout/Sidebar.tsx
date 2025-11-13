@@ -132,7 +132,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
         <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200 bg-white">
           <button
             onClick={handleLogout}
-            className="w-full inline-flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-red-50 hover:text-red-600"
+            className="w-full inline-flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-green-50 hover:text-green-600 transition"
           >
             <ArrowRightOnRectangleIcon className="w-5 h-5" />
             <span className="font-medium">Logout</span>
@@ -197,14 +197,23 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
           <button
             onClick={handleLogout}
             className={[
-              "w-full inline-flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-red-50 hover:text-red-600",
+              "w-full inline-flex items-center px-3 py-2 rounded-lg text-gray-700 hover:bg-green-50 hover:text-green-600",
+              collapsed ? "justify-center gap-0" : "justify-start gap-3",
               motionClass,
             ].join(" ")}
             title={collapsed ? "Logout" : undefined}
             aria-label="Cerrar sesión"
           >
             <ArrowRightOnRectangleIcon className="w-5 h-5" />
-            <span className={["font-medium truncate", labelCls].join(" ")}>Logout</span>
+            <span
+              className={[
+                "font-medium truncate",
+                labelCls,
+                collapsed ? "hidden lg:hidden" : "",
+              ].join(" ")}
+            >
+              Logout
+            </span>
           </button>
         </div>
       </aside>
@@ -234,7 +243,7 @@ function SmartNavLink({
         [
           "group relative flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors",
           "text-gray-700 hover:bg-gray-100 hover:text-gray-900",
-          isActive ? "bg-red-50 text-red-700 active" : "", // añadimos 'active' para el selector de grupo
+          isActive ? "bg-green-50 text-green-700 active" : "",
         ].join(" ")
       }
     >
@@ -270,7 +279,7 @@ function ActiveBar() {
     <span
       aria-hidden="true"
       className="pointer-events-none absolute left-0 top-0 h-full w-0 opacity-0 transition-all duration-300
-                 group-[.active]:opacity-100 group-[.active]:w-0.5 group-[.active]:bg-red-500"
+                 group-[.active]:opacity-100 group-[.active]:w-0.5 group-[.active]:bg-green-500"
     />
   );
 }
