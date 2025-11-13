@@ -25,10 +25,14 @@ import { CloudIcon, FireIcon, ArrowPathIcon } from "@heroicons/react/24/solid";
    Tipos / Helpers
 ========================================= */
 
-type Quick = "24h" | "7d" | "30d" | "all" | "custom";
+// NUEVO: ahora incluye 12h y 72h
+type Quick = "12h" | "24h" | "72h" | "7d" | "30d" | "all" | "custom";
 
+// NUEVO: agregamos divisiones para 12h y 72h
 const PRESET_DIVISIONS: Record<Exclude<Quick, "all" | "custom">, number> = {
-  "24h": 144,
+  "12h": 144,  // ~5 min
+  "24h": 144,  // ~10 min
+  "72h": 288,  // ~15 min
   "7d": 504,
   "30d": 1440,
 };
@@ -123,6 +127,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   const weekAgo = new Date(today.getTime() - 7 * 24 * 3600 * 1000);
   const weekAgoStr = toYMD(weekAgo);
 
+  // NUEVO: ahora default sigue siendo 7d, pero el tipo incluye más opciones
   const [quick, setQuick] = useState<Quick>("7d");
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
     start: weekAgoStr,
@@ -171,7 +176,8 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const idxOf: Record<string, number> = {};
     time.forEach((iso, i) => (idxOf[iso] = i));
 
-    const series: Record<string, { temperature: (number | null)[]; humidity: (number | null)[] }> = {};
+    const series: Record<string, { temperature: (number | null)[]; humidity: (number | null)[] }> =
+      {};
     const labelOf = (s: any) => (s?.deviceName || s?.name || s?.devEUI || "Sensor") as string;
 
     (sensors ?? []).forEach((s: any) => {
@@ -221,12 +227,14 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
   // -------- Ventana actual en ms --------
   const windowMs = useMemo(() => {
+    // CUSTOM con fecha/hora
     if (quick === "custom" && customStart && customEnd) {
       const s = toSafeDate(customStart).getTime();
       const e = adjustEndForNow(toSafeDate(customEnd).getTime());
       return [s, e] as const;
     }
 
+    // TODO
     if (quick === "all") {
       const has = !!unified.minIso && !!unified.maxIso;
       const endMs = adjustEndForNow(has ? toSafeDate(unified.maxIso).getTime() : Date.now());
@@ -234,6 +242,15 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       return [startMs, endMs] as const;
     }
 
+    // NUEVO: quicks basados en horas reales
+    if (quick === "12h" || quick === "24h" || quick === "72h") {
+      const hours = quick === "12h" ? 12 : quick === "24h" ? 24 : 72;
+      const endMs = adjustEndForNow(Date.now());
+      const startMs = endMs - hours * 3600 * 1000;
+      return [startMs, endMs] as const;
+    }
+
+    // Resto: quicks basados en días (7d, 30d) usando dateRange
     const s = startOfDayLocal(dateRange.start).getTime();
     const e = endOfDayLocal(dateRange.end).getTime();
     const { start: todayStart, end: todayEnd } = dayBoundsMs(new Date());
@@ -255,7 +272,15 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       const from = new Date(to.getTime() - 90 * 24 * 3600 * 1000);
       fromISO = from.toISOString();
       toISO = to.toISOString();
+    } else if (quick === "12h" || quick === "24h" || quick === "72h") {
+      // NUEVO: rangos reales de horas atrás
+      const hours = quick === "12h" ? 12 : quick === "24h" ? 24 : 72;
+      const to = new Date();
+      const from = new Date(to.getTime() - hours * 3600 * 1000);
+      fromISO = from.toISOString();
+      toISO = to.toISOString();
     } else {
+      // 7d / 30d — por días completos
       fromISO = startOfDayLocal(dateRange.start).toISOString();
       toISO = endOfDayLocal(dateRange.end).toISOString();
     }
@@ -305,12 +330,21 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   ): { rows: ChartRow[]; startIso: string; endIso: string } => {
     const names: string[] = unified.names;
     const dur = Math.max(1, endMs - startMs);
-    const divisions =
-      dur <= 24 * 3600 * 1000
-        ? PRESET_DIVISIONS["24h"]
-        : dur <= 7 * 24 * 3600 * 1000
-        ? PRESET_DIVISIONS["7d"]
-        : PRESET_DIVISIONS["30d"];
+    const H = 3600 * 1000;
+
+    // NUEVO: usamos divisiones distintas según duración
+    let divisions: number;
+    if (dur <= 12 * H) {
+      divisions = PRESET_DIVISIONS["12h"];
+    } else if (dur <= 24 * H) {
+      divisions = PRESET_DIVISIONS["24h"];
+    } else if (dur <= 72 * H) {
+      divisions = PRESET_DIVISIONS["72h"];
+    } else if (dur <= 7 * 24 * H) {
+      divisions = PRESET_DIVISIONS["7d"];
+    } else {
+      divisions = PRESET_DIVISIONS["30d"];
+    }
 
     const step = Math.max(1, Math.floor(dur / Math.max(1, divisions)));
     const rows: ChartRow[] = [];
@@ -438,12 +472,14 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   // -------- UI: acciones de rango --------
   const applyQuick = (k: Quick) => {
     setRangeError("");
-    if (k === "24h") {
-      const end = new Date();
-      const start = new Date(end.getTime() - 24 * 3600 * 1000);
-      setDateRange({ start: toYMD(start), end: toYMD(end) });
-      setQuick("24h");
-    } else if (k === "7d") {
+
+    // NUEVO: quicks por horas — solo cambiamos el tipo
+    if (k === "12h" || k === "24h" || k === "72h") {
+      setQuick(k);
+      return;
+    }
+
+    if (k === "7d") {
       const end = new Date();
       const start = new Date(end.getTime() - 7 * 24 * 3600 * 1000);
       setDateRange({ start: toYMD(start), end: toYMD(end) });
@@ -456,6 +492,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     } else if (k === "all") {
       setQuick("all");
     } else {
+      // custom
       setQuick("custom");
     }
   };
@@ -581,7 +618,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       spans.push({
         startIso: new Date(rawTimes[rawTimes.length - 1]).toISOString(),
         endIso: new Date(endMs).toISOString(),
-        durationMin: Math.round((endMs - rawTimes[rawTimes.length - 1]) / 60000),
+        durationMin: Math.round((endMs - startMs) / 60000),
       });
     }
 
@@ -634,7 +671,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
         {/* Quick ranges */}
         <div className="flex flex-wrap items-center gap-1 sm:gap-2 ml-auto">
-          {(["24h", "7d", "30d", "all", "custom"] as Quick[]).map((opt) => (
+          {(["12h", "24h", "72h", "7d", "30d", "all", "custom"] as Quick[]).map((opt) => (
             <button
               key={opt}
               onClick={() => applyQuick(opt)}
@@ -644,8 +681,12 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                   : "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"
               }`}
             >
-              {opt === "24h"
+              {opt === "12h"
+                ? "12 horas"
+                : opt === "24h"
                 ? "24 horas"
+                : opt === "72h"
+                ? "72 horas"
                 : opt === "7d"
                 ? "7 días"
                 : opt === "30d"
