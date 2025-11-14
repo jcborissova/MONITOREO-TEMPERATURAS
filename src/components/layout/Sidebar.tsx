@@ -100,7 +100,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
         {/* Header móvil */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-200">
           <img src="/assets/WHLOGO.png" alt="Logo Warehouses" className="w-10 h-10 rounded-full shadow-sm" />
-          <span className="text-lg font-semibold text-gray-800 truncate">Warehouses</span>
+          <span className="text-lg font-semibold text-gray-800 truncate">Smart electric</span>
           <button
             onClick={toggleSidebar}
             className="ml-auto p-2 rounded-full text-gray-600 hover:bg-gray-100"
@@ -172,7 +172,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
               labelCls,
             ].join(" ")}
           >
-            Warehouses
+            Panel de Monitoreo
           </span>
         </div>
 
