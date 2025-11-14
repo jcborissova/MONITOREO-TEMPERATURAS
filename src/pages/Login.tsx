@@ -7,7 +7,7 @@ import authService from "../services/auth.service";
 import Logo from "../assets/images/smart-electric-solution.png";
 
 // Logo oficial de la empresa (el que mostraste)
-import CompanyLogo from "../assets/images/SmartLogo.png";
+import CompanyLogo from "../assets/images/SmartLogoBlack.png";
 
 import {
   XMarkIcon,
@@ -82,11 +82,11 @@ const Login: React.FC = () => {
         <div className="hidden lg:flex flex-col gap-6 text-slate-800">
           {/* Logo de Empresa */}
           <div className="flex items-center gap-4 mb-2">
-            <div className="rounded-2xl bg-teal-600/90 shadow-md  border border-teal-700">
+            <div className="flex h-24 w-24 xl:h-28 xl:w-28 items-center justify-center rounded-2xl bg-teal-50 shadow-md border border-teal-100">
               <img
                 src={CompanyLogo}
                 alt="Smart Electric Solution Company Logo"
-                className="w-28 h-28 object-contain drop-shadow"
+                className="h-20 xl:h-24 w-auto object-contain drop-shadow"
               />
             </div>
             <div>
@@ -98,6 +98,7 @@ const Login: React.FC = () => {
               </p>
             </div>
           </div>
+
 
           {/* Badge */}
           <div className="inline-flex items-center gap-3 rounded-full bg-white/80 px-4 py-2 shadow-sm border border-slate-100 w-max mt-2">
@@ -144,13 +145,14 @@ const Login: React.FC = () => {
           <div className="mx-auto w-full max-w-md rounded-2xl bg-white/95 shadow-xl border border-slate-100 px-6 py-8 sm:px-8 sm:py-10 backdrop-blur">
             {/* Icono de la APP */}
             <div className="flex flex-col items-center mb-6">
-              <div className="mb-3 rounded-2xl bg-slate-50 border border-slate-100 shadow-sm px-4 py-3">
+              <div className="mb-4 rounded-2xl bg-slate-50 border border-slate-100 shadow-sm px-5 py-4">
                 <img
                   src={Logo}
                   alt="Smart Electric Solution App Icon"
-                  className="w-16 h-16 sm:w-20 sm:h-20 object-contain"
+                  className="h-16 sm:h-20 md:h-24 w-auto object-contain"
                 />
               </div>
+
               <h2 className="text-2xl sm:text-3xl font-bold text-center text-slate-900">
                 Panel de Monitoreo
               </h2>

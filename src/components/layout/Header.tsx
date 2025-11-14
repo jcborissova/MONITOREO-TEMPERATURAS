@@ -1,7 +1,7 @@
 import React from "react";
 import { Bars3Icon, UserCircleIcon } from "@heroicons/react/24/solid";
 import NotificationBell from "../notifications/NotificationBell";
-import CompanyLogo from "../../assets/images/SmartLogo.png";
+import CompanyLogo from "../../assets/images/SmartLogoBlack.png";
 
 interface HeaderProps {
   isSidebarOpen: boolean;
@@ -24,15 +24,16 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
           </button>
 
           {/* Logo con fondo de color para que no se pierda en blanco */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="h-10 w-10 sm:h-11 sm:w-11 md:h-12 md:w-12 rounded-xl bg-teal-500 border border-teal-200 shadow-sm flex items-center justify-center">
-              <img
-                src={CompanyLogo}
-                alt="Smart Electric Logo"
-                className="h-7 sm:h-8 md:h-9 w-auto object-contain"
-              />
-            </div>
-          </div>
+<div className="flex items-center gap-2 flex-shrink-0">
+  <div className="h-12 w-12 sm:h-14 sm:w-14 md:h-16 md:w-16 shadow-sm flex items-center justify-center">
+    <img
+      src={CompanyLogo}
+      alt="Smart Electric Logo"
+      className="h-11 sm:h-12 md:h-14 w-auto object-contain"
+    />
+  </div>
+</div>
+
 
           {/* Título + subtítulo */}
           <div className="flex flex-col min-w-0">
