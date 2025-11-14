@@ -63,7 +63,8 @@ export const WeatherContext = createContext<WeatherContextProps>({
 });
 
 export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { sensors: sensorsFromCtx, refreshSensors: refreshSensorsOnly } = React.useContext(SensorsContext);
+  const { sensors: sensorsFromCtx, refreshSensors: refreshSensorsOnly } =
+    React.useContext(SensorsContext);
 
   const [warehouse, setWarehouse] = useState<WarehouseData | null>(null);
   const [sensors, setSensors] = useState<Room[]>([]);
@@ -138,7 +139,9 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     }
   }, [sensorsFromCtx]);
 
-  useEffect(() => { void fetchSensors(); }, [fetchSensors]);
+  useEffect(() => {
+    void fetchSensors();
+  }, [fetchSensors]);
 
   const ensureSensors = useCallback(async () => {
     if (sensors.length > 0) return sensors;
@@ -176,7 +179,9 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
           }
         };
 
-        await Promise.all(Array.from({ length: Math.min(POOL, keys.length) }, () => worker()));
+        await Promise.all(
+          Array.from({ length: Math.min(POOL, keys.length) }, () => worker())
+        );
       } finally {
         endRangeLoading();
       }
@@ -214,7 +219,9 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
         );
         setHistoryData((prev) => {
           const clone = { ...prev };
-          for (const [k, sample] of entries) clone[k] = mergeHistory(clone[k] ?? [], sample);
+          for (const [k, sample] of entries) {
+            clone[k] = mergeHistory(clone[k] ?? [], sample);
+          }
           return clone;
         });
 
@@ -257,13 +264,17 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
   useEffect(() => {
     const w = window as any;
     const create = () => {
-      const id = window.setInterval(() => { void refreshData(false); }, POLL_MS);
+      const id = window.setInterval(() => {
+        void refreshData(false);
+      }, POLL_MS);
       w.__weatherPoller = { id, pollMs: POLL_MS, createdAt: Date.now() };
       void refreshData(true);
     };
     if (w.__weatherPoller?.id) {
       if (w.__weatherPoller.pollMs !== POLL_MS) {
-        try { clearInterval(w.__weatherPoller.id); } catch {}
+        try {
+          clearInterval(w.__weatherPoller.id);
+        } catch {}
         create();
       } else {
         void refreshData(false);
@@ -272,6 +283,51 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
       create();
     }
   }, [POLL_MS, refreshData]);
+
+  /** 👉 OPEN WAREHOUSE PLAN como callback reutilizable */
+  const openWarehousePlan = useCallback(
+    async (name: string) => {
+      const loc = locations.find((l) => l.name === name);
+      if (!loc) return;
+
+      const current = sensors.length ? sensors : await fetchSensors();
+
+      setWarehouse({
+        name: loc.name,
+        lat: loc.position[0],
+        lng: loc.position[1],
+        address: loc.address,
+        phone: loc.phone,
+        hours: loc.hours,
+        imageUrl: loc.imageUrl,
+      });
+      setSelectedWarehouse(name);
+      setClimateData({ rooms: current });
+      setIsModalOpen(true);
+    },
+    [sensors, fetchSensors]
+  );
+
+  const closeWarehousePlan = useCallback(() => {
+    setSelectedWarehouse(null);
+    setIsModalOpen(false);
+    setClimateData(null);
+  }, []);
+
+  /** 👉 Listener global del CustomEvent "open-warehouse-plan" */
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const evt = e as CustomEvent<{ name?: string }>;
+      const name = evt.detail?.name;
+      if (!name) return;
+      void openWarehousePlan(name);
+    };
+
+    window.addEventListener("open-warehouse-plan", handler as EventListener);
+    return () => {
+      window.removeEventListener("open-warehouse-plan", handler as EventListener);
+    };
+  }, [openWarehousePlan]);
 
   const value = useMemo<WeatherContextProps>(
     () => ({
@@ -283,28 +339,8 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
       isModalOpen,
       isLoading,
       isRangeLoading,
-      openWarehousePlan: async (name: string) => {
-        const loc = locations.find((l) => l.name === name);
-        if (!loc) return;
-        const current = sensors.length ? sensors : await fetchSensors();
-        setWarehouse({
-          name: loc.name,
-          lat: loc.position[0],
-          lng: loc.position[1],
-          address: loc.address,
-          phone: loc.phone,
-          hours: loc.hours,
-          imageUrl: loc.imageUrl,
-        });
-        setSelectedWarehouse(name);
-        setClimateData({ rooms: current });
-        setIsModalOpen(true);
-      },
-      closeWarehousePlan: () => {
-        setSelectedWarehouse(null);
-        setIsModalOpen(false);
-        setClimateData(null);
-      },
+      openWarehousePlan,
+      closeWarehousePlan,
       refreshData,
       fetchHistoryRange,
     }),
@@ -317,6 +353,8 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
       isModalOpen,
       isLoading,
       isRangeLoading,
+      openWarehousePlan,
+      closeWarehousePlan,
       refreshData,
       fetchHistoryRange,
     ]

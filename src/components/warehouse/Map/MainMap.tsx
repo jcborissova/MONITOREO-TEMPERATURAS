@@ -1,5 +1,5 @@
 // src/components/warehouse/Map/MainMap.tsx
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { Map, AdvancedMarker, InfoWindow, useMap } from "@vis.gl/react-google-maps";
 import WarehousePopup from "./WarehousePopup";
