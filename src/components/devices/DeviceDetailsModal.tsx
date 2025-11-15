@@ -1,8 +1,8 @@
-/* src/components/DeviceDetailsModal.tsx */
+/* src/components/devices/DeviceDetailsModal.tsx */
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useContext, useEffect, useMemo, useRef } from "react";
 import {
   XMarkIcon,
   InformationCircleIcon,
@@ -15,6 +15,8 @@ import {
   IdentificationIcon,
 } from "@heroicons/react/24/outline";
 import type { Room } from "../../types/types";
+import { WeatherContext } from "../../context/WeatherContext";
+import { SensorsContext } from "../../context/SensorsContext";
 
 /* =========================
    Helpers
@@ -59,11 +61,6 @@ const timeAgo = (v: any) => {
   if (h < 24) return `hace ${h}h`;
   const d = Math.floor(h / 24);
   return `hace ${d}d`;
-};
-
-const isConnected = (updatedAt: any, minutes = 5) => {
-  const ms = toMs(updatedAt);
-  return ms && Date.now() - ms <= minutes * 60 * 1000;
 };
 
 /* =========================
@@ -117,6 +114,9 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
 }) => {
   const backdropRef = useRef<HTMLDivElement>(null);
 
+  const { historyData } = useContext(WeatherContext);
+  const { getSmartConnection } = useContext(SensorsContext);
+
   useEffect(() => {
     if (!isOpen) return;
     const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -133,32 +133,73 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
     if (e.target === backdropRef.current) onClose();
   };
 
-  /* ==== Derivados ==== */
-  const lastUpdate = device?.updatedAt ?? device?.timestamp ?? null;
-  const connected = isConnected(lastUpdate, 5);
-  const temp = device?.temperature as number | undefined;
-  const hum = (device as any)?.humedity ?? (device as any)?.humidity;
-  const uid = device?.devEUI ?? (device as any)?.uid ?? (device as any)?.id ?? "—";
+  /* ==== Historial + conexión usando la misma lógica que DevicesPage ==== */
+  const { history, conn, lastUpdate } = useMemo(() => {
+    if (!device) {
+      return { history: [] as { ts: number; temperature?: number; humedity?: number }[], conn: null as any, lastUpdate: null as any };
+    }
 
-  const history = useMemo(() => {
-    const list = (device?.history ?? [])
-      .slice(-30)
-      .map((h) => ({
-        ts: toMs(h.timestamp ?? (h as any).created_at ?? (h as any).time),
-        temperature:
-          typeof h.temperature === "number" ? h.temperature : (h as any)?.temp,
-        humedity:
-          typeof h.humedity === "number"
-            ? h.humedity
-            : (h as any)?.humidity ?? (h as any)?.hum,
-      }))
+    const keyByEui = device.devEUI ?? null;
+    const keyByName = device.name ?? (device as any).deviceName ?? null;
+
+    const rawList: any[] =
+      (keyByEui && historyData[keyByEui]) ||
+      (keyByName && historyData[keyByName]) ||
+      [];
+
+    const normalized = (rawList as any[])
+      .map((m: any) => {
+        const ts = toMs(m.timestamp ?? m.created_at ?? m.time ?? m.date ?? m.updatedAt);
+        return {
+          ts,
+          temperature:
+            typeof m.temperature === "number"
+              ? m.temperature
+              : (m as any)?.temp ?? m.data?.temperature,
+          humedity:
+            typeof m.humedity === "number"
+              ? m.humedity
+              : (m as any)?.humidity ?? m.data?.humidity ?? (m as any)?.hum,
+        };
+      })
       .filter((x) => x.ts > 0)
-      .sort((a, b) => b.ts - a.ts);
-    return list;
-  }, [device?.history]);
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 30); // últimos 30 registros, como antes
+
+    const connInfo = getSmartConnection(device, rawList as any);
+
+    const last =
+      connInfo?.last ??
+      (normalized[0]?.ts ? new Date(normalized[0].ts) : device?.updatedAt ?? (device as any)?.timestamp ?? null);
+
+    return {
+      history: normalized,
+      conn: connInfo,
+      lastUpdate: last,
+    };
+  }, [device, historyData, getSmartConnection]);
+
+  const connected = !!conn?.isConnected;
+
+  // Métricas actuales (tomamos el último histórico y caemos al valor directo del device)
+  const latest = history[0];
+  const temp =
+    typeof latest?.temperature === "number"
+      ? latest.temperature
+      : (device?.temperature as number | undefined);
+
+  const hum =
+    typeof latest?.humedity === "number"
+      ? latest.humedity
+      : (device as any)?.humedity ?? (device as any)?.humidity;
+
+  const uid =
+    device?.devEUI ?? (device as any)?.uid ?? (device as any)?.id ?? (device as any)?.deviceName ?? "—";
 
   const imageSrc =
-    device?.imageUrl && device.imageUrl.trim().length > 0 ? device.imageUrl : "";
+    (device as any)?.imageUrl && (device as any).imageUrl.trim().length > 0
+      ? (device as any).imageUrl
+      : "";
 
   return (
     <>
@@ -249,7 +290,9 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                       <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] sm:text-xs text-gray-700">
                         <CalendarDaysIcon className="h-4 w-4 text-gray-500" />
                         {fmtDateTime(lastUpdate)}
-                        <span className="text-gray-400">({timeAgo(lastUpdate)})</span>
+                        <span className="text-gray-400">
+                          {lastUpdate ? ` (${timeAgo(lastUpdate)})` : ""}
+                        </span>
                       </span>
                     </div>
                   </div>
@@ -269,7 +312,7 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                 <Tile
                   icon={<ExclamationTriangleIcon className="h-5 w-5" />}
                   label="Temperatura"
-                  value={fmtNum(temp, " °C")}
+                  value={fmtNum(temp ?? null, " °C")}
                   tone="blue"
                 />
                 <Tile
@@ -314,10 +357,26 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                         </div>
                         <div className="text-right">
                           <p className="text-gray-700">
-                            T: <span className="font-semibold">{fmtNum(row.temperature)}</span>
+                            T:{" "}
+                            <span className="font-semibold">
+                              {fmtNum(
+                                typeof row.temperature === "number"
+                                  ? row.temperature
+                                  : undefined,
+                                ""
+                              )}
+                            </span>
                           </p>
                           <p className="text-gray-700">
-                            H: <span className="font-semibold">{fmtNum(row.humedity)}</span>
+                            H:{" "}
+                            <span className="font-semibold">
+                              {fmtNum(
+                                typeof row.humedity === "number"
+                                  ? row.humedity
+                                  : undefined,
+                                ""
+                              )}
+                            </span>
                           </p>
                         </div>
                       </div>
