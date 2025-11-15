@@ -136,7 +136,11 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
   /* ==== Historial + conexión usando la misma lógica que DevicesPage ==== */
   const { history, conn, lastUpdate } = useMemo(() => {
     if (!device) {
-      return { history: [] as { ts: number; temperature?: number; humedity?: number }[], conn: null as any, lastUpdate: null as any };
+      return {
+        history: [] as { ts: number; temperature?: number; humedity?: number }[],
+        conn: null as any,
+        lastUpdate: null as any,
+      };
     }
 
     const keyByEui = device.devEUI ?? null;
@@ -164,13 +168,15 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
       })
       .filter((x) => x.ts > 0)
       .sort((a, b) => b.ts - a.ts)
-      .slice(0, 30); // últimos 30 registros, como antes
+      .slice(0, 30); // últimos 30 registros
 
     const connInfo = getSmartConnection(device, rawList as any);
 
     const last =
       connInfo?.last ??
-      (normalized[0]?.ts ? new Date(normalized[0].ts) : device?.updatedAt ?? (device as any)?.timestamp ?? null);
+      (normalized[0]?.ts
+        ? new Date(normalized[0].ts)
+        : device?.updatedAt ?? (device as any)?.timestamp ?? null);
 
     return {
       history: normalized,
@@ -181,7 +187,7 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
 
   const connected = !!conn?.isConnected;
 
-  // Métricas actuales (tomamos el último histórico y caemos al valor directo del device)
+  // Métricas actuales (desde el último histórico)
   const latest = history[0];
   const temp =
     typeof latest?.temperature === "number"
@@ -193,8 +199,17 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
       ? latest.humedity
       : (device as any)?.humedity ?? (device as any)?.humidity;
 
+  // 👉 Si NO está conectado, no mostramos valores "en vivo" en los tiles (solo —)
+  const tempTileValue = connected && typeof temp === "number" ? fmtNum(temp, " °C") : "—";
+  const humTileValue =
+    connected && typeof hum === "number" ? fmtNum(hum, " %") : "—";
+
   const uid =
-    device?.devEUI ?? (device as any)?.uid ?? (device as any)?.id ?? (device as any)?.deviceName ?? "—";
+    device?.devEUI ??
+    (device as any)?.uid ??
+    (device as any)?.id ??
+    (device as any)?.deviceName ??
+    "—";
 
   const imageSrc =
     (device as any)?.imageUrl && (device as any).imageUrl.trim().length > 0
@@ -312,13 +327,13 @@ const DeviceDetailsModal: React.FC<DeviceDetailsModalProps> = ({
                 <Tile
                   icon={<ExclamationTriangleIcon className="h-5 w-5" />}
                   label="Temperatura"
-                  value={fmtNum(temp ?? null, " °C")}
+                  value={tempTileValue}
                   tone="blue"
                 />
                 <Tile
                   icon={<ExclamationTriangleIcon className="h-5 w-5" />}
                   label="Humedad"
-                  value={fmtNum(typeof hum === "number" ? hum : undefined, " %")}
+                  value={humTileValue}
                   tone="yellow"
                 />
               </div>
