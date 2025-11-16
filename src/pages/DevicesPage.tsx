@@ -1,6 +1,6 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
+
 import React, {
   useContext,
   useEffect,
@@ -26,7 +26,7 @@ import { WeatherContext } from "../context/WeatherContext";
 import type { Room, Measure } from "../types/types";
 import {
   SensorsContext,
-  CONNECTION_THRESHOLD_MIN, // ← umbral unificado (30 min)
+  CONNECTION_THRESHOLD_MIN, // ← umbral unificado (ej. 30 min)
   type ConnInfo,
 } from "../context/SensorsContext";
 
@@ -76,9 +76,12 @@ const EmptyState = ({ onRetry }: { onRetry: () => void }) => (
     <div className="mx-auto w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center mb-4">
       <NoSymbolIcon className="w-8 h-8 text-blue-600" />
     </div>
-    <h3 className="text-lg font-semibold text-gray-800">No hay dispositivos para mostrar</h3>
+    <h3 className="text-lg font-semibold text-gray-800">
+      No hay dispositivos para mostrar
+    </h3>
     <p className="text-sm text-gray-500 mt-1">
-      Aún no se han registrado sensores o no se detectaron lecturas recientes.
+      Aún no se han registrado sensores o no se detectaron lecturas recientes en
+      la ventana de {CONNECTION_THRESHOLD_MIN} minutos.
     </p>
     <div className="mt-5">
       <Button onClick={onRetry}>
@@ -87,11 +90,15 @@ const EmptyState = ({ onRetry }: { onRetry: () => void }) => (
       </Button>
     </div>
     <p className="text-xs text-gray-400 mt-3">
-      Tip: verifica la conexión de los dispositivos y la configuración del sistema.
+      Tip: verifica la conexión de los dispositivos, la alimentación eléctrica y
+      la configuración del sistema.
     </p>
   </div>
 );
 
+/* =========================
+   Helpers de formato
+========================= */
 const formatRelative = (min: number) => {
   if (!isFinite(min)) return "";
   if (min < 1) return "menos de 1 min";
@@ -102,7 +109,30 @@ const formatRelative = (min: number) => {
   return `${Math.floor(d)} d`;
 };
 
-const renderConnectionStatus = (conn: ConnInfo) => {
+const formatDateTime = (date: Date | null | undefined) => {
+  if (!date) return "desconocido";
+  try {
+    return date.toLocaleString("es-DO", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "desconocido";
+  }
+};
+
+const renderConnectionStatus = (conn: ConnInfo | null | undefined) => {
+  if (!conn) {
+    return (
+      <span className="text-xs text-gray-400">
+        Sin información de conexión disponible
+      </span>
+    );
+  }
+
   if (conn.isConnected) {
     return (
       <div className="flex flex-col">
@@ -111,21 +141,17 @@ const renderConnectionStatus = (conn: ConnInfo) => {
           Conectado
         </span>
         <span className="text-xs text-gray-500">
-          Última lectura:{" "}
-          {conn.last
-            ? conn.last.toLocaleString("es-DO", {
-                weekday: "short",
-                day: "2-digit",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            : "desconocido"}{" "}
-          (hace {formatRelative(conn.diffMin)})
+          Última lectura: {formatDateTime(conn.last)}{" "}
+          {isFinite(conn.diffMin) && (
+            <span className="text-gray-400">
+              (hace {formatRelative(conn.diffMin)})
+            </span>
+          )}
         </span>
       </div>
     );
   }
+
   return (
     <div className="flex flex-col">
       <span className="flex items-center gap-1 text-red-500 font-medium">
@@ -133,23 +159,21 @@ const renderConnectionStatus = (conn: ConnInfo) => {
         Desconectado
       </span>
       <span className="text-xs text-gray-500">
-        Última conexión:{" "}
-        {conn.last
-          ? conn.last.toLocaleString("es-DO", {
-              weekday: "short",
-              day: "2-digit",
-              month: "short",
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "desconocido"}
-        {isFinite(conn.diffMin) ? ` (hace ${formatRelative(conn.diffMin)})` : ""}
+        Última conexión: {formatDateTime(conn.last)}{" "}
+        {isFinite(conn.diffMin) && (
+          <span className="text-gray-400">
+            (hace {formatRelative(conn.diffMin)})
+          </span>
+        )}
       </span>
     </div>
   );
 };
 
-const renderBattery = (level: number | undefined | null, isConnected: boolean) => {
+const renderBattery = (
+  level: number | undefined | null,
+  isConnected: boolean
+) => {
   if (!isConnected) {
     return (
       <span className="flex items-center text-gray-400 font-medium">
@@ -159,7 +183,8 @@ const renderBattery = (level: number | undefined | null, isConnected: boolean) =
     );
   }
   if (level == null || Number.isNaN(level)) return "—";
-  const pct = Math.round(Number(level));
+
+  const pct = Math.max(0, Math.min(100, Math.round(Number(level))));
 
   if (pct >= 80) {
     return (
@@ -183,10 +208,124 @@ const renderBattery = (level: number | undefined | null, isConnected: boolean) =
 };
 
 /* =========================
+   Helpers de datos (history / meta)
+========================= */
+
+// Clave “principal” de un dispositivo para buscar en history
+const getDeviceKey = (row: Room): string | null => {
+  return (
+    row.devEUI ||
+    row.name ||
+    (row as any).deviceName ||
+    (row as any).id ||
+    null
+  );
+};
+
+// Busca history usando devEUI / name / deviceName (similar al dashboard)
+const pickHistoryForDevice = (
+  row: Room,
+  historyData: Record<string, any[]>
+): Measure[] => {
+  const candidates = [
+    row.devEUI,
+    row.name,
+    (row as any).deviceName,
+  ].filter(Boolean) as string[];
+
+  for (const key of candidates) {
+    if (historyData[key]) return historyData[key] as Measure[];
+  }
+
+  // fallback: búsqueda case-insensitive
+  const lowerIndex = new Map<string, string>();
+  Object.keys(historyData || {}).forEach((k) =>
+    lowerIndex.set(k.toLowerCase(), k)
+  );
+
+  for (const key of candidates) {
+    const real = lowerIndex.get(key.toLowerCase());
+    if (real && historyData[real]) return historyData[real] as Measure[];
+  }
+
+  return [];
+};
+
+interface DeviceMeta {
+  conn: ConnInfo | null;
+  battery: number | null;
+  temperature: number | null;
+  humidity: number | null;
+}
+
+const computeDeviceMeta = (
+  devices: Room[],
+  historyData: Record<string, any[]>,
+  getSmartConnection: (room: Room, history: any[]) => ConnInfo
+) => {
+  const meta = new Map<string, DeviceMeta>();
+
+  devices.forEach((row) => {
+    const key = getDeviceKey(row);
+    if (!key) return;
+
+    const history = pickHistoryForDevice(row, historyData);
+    const conn = getSmartConnection(row, history as any[]);
+
+    const rawBattery =
+      (row as any).battery ??
+      (row as any).batteryPct ??
+      (row as any).lastPower ??
+      (row as any).productivity ??
+      null;
+
+    const battery = Number.isFinite(Number(rawBattery))
+      ? Number(rawBattery)
+      : null;
+
+    const rawTemp =
+      (row as any).temperature ??
+      (history[history.length - 1] as any)?.temperature ??
+      null;
+
+    const rawHum =
+      (row as any).humedity ??
+      (row as any).humidity ??
+      (history[history.length - 1] as any)?.humidity ??
+      (history[history.length - 1] as any)?.humedity ??
+      (history[history.length - 1] as any)?.data?.humidity ??
+      null;
+
+    const temperature =
+      rawTemp != null && !Number.isNaN(Number(rawTemp))
+        ? Number(rawTemp)
+        : null;
+    const humidity =
+      rawHum != null && !Number.isNaN(Number(rawHum))
+        ? Number(rawHum)
+        : null;
+
+    meta.set(String(key), {
+      conn,
+      battery,
+      temperature,
+      humidity,
+    });
+  });
+
+  return meta;
+};
+
+/* =========================
    Componente principal
 ========================= */
 const DevicesPage: React.FC = () => {
-  const { sensors, historyData, isLoading: weatherLoading, refreshData } = useContext(WeatherContext);
+  const {
+    sensors,
+    historyData,
+    isLoading: weatherLoading,
+    refreshData,
+  } = useContext(WeatherContext);
   const { getSmartConnection } = useContext(SensorsContext);
 
   const [selectedDevice, setSelectedDevice] = useState<Room | null>(null);
@@ -194,21 +333,38 @@ const DevicesPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [configDeviceId, setConfigDeviceId] = useState<string>("");
 
+  // Filtramos zonas generales (si las tienes como sensores "macro")
   const tableData = useMemo(
     () =>
       (sensors || []).filter((s) => {
-        const n = (s.name || (s as any).deviceName || "").toLowerCase();
-        return !n.includes("almacén") && !n.includes("almacen") && !n.includes("warehouse");
+        const n = (s.name || (s as any).deviceName || "")
+          .toString()
+          .toLowerCase();
+        return (
+          !n.includes("almacén") &&
+          !n.includes("almacen") &&
+          !n.includes("warehouse")
+        );
       }),
     [sensors]
   );
 
   const hasData = tableData.length > 0;
 
+  // Precomputar meta por dispositivo (conn, batería, lecturas)
+  const deviceMeta = useMemo(
+    () => computeDeviceMeta(tableData, historyData || {}, getSmartConnection),
+    [tableData, historyData, getSmartConnection]
+  );
+
+  /* ========= Refresh control (con ref para evitar re-renders) ========= */
   const refreshRef = useRef(refreshData);
-  useEffect(() => { refreshRef.current = refreshData; }, [refreshData]);
+  useEffect(() => {
+    refreshRef.current = refreshData;
+  }, [refreshData]);
 
   const isRefreshingRef = useRef(false);
+
   const handleRefresh = useCallback(async () => {
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
@@ -221,22 +377,18 @@ const DevicesPage: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { handleRefresh(); }, []); // carga inicial
+  // Primera carga
+  useEffect(() => {
+    handleRefresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  const showLoading = weatherLoading || isLoading;
+
+  /* ========= Actions tabla ========= */
   const handleViewDetails = (row: Room) => {
-    const keyByEui = row.devEUI ?? null;
-    const keyByName = row.name ?? (row as any).deviceName ?? null;
-    const rawList: any[] =
-      (keyByEui && historyData[keyByEui]) ||
-      (keyByName && historyData[keyByName]) ||
-      [];
-    const parsed: Measure[] = (rawList as any[]).map((m: any) => ({
-      timestamp: (m.timestamp || m.created_at || m.time || m.date || m.updatedAt) as string,
-      temperature: Number(m.temperature ?? 0),
-      humedity: Number(m.humedity ?? m.humidity ?? m.data?.humidity ?? 0),
-      productivity: Number(m.productivity ?? m.power ?? 0),
-    }));
-    setSelectedDevice({ ...row, history: parsed });
+    // El modal ya usa WeatherContext para reconstruir history, así que basta pasar el Room
+    setSelectedDevice(row);
     setIsDetailsOpen(true);
   };
 
@@ -250,20 +402,47 @@ const DevicesPage: React.FC = () => {
     if (action === "edit") return handleOpenConfig(row);
   };
 
-  const showLoading = weatherLoading || isLoading;
+  /* ========= Render ========= */
+  const totalDevices = tableData.length;
 
   return (
     <PageContainer
       title="Gestión de Dispositivos"
-      description={`Monitorea los sensores y configura umbrales (ventana en vivo: ${CONNECTION_THRESHOLD_MIN} min).`}
+      description={`Monitorea los sensores y configura umbrales. La ventana de conexión actual es de ${CONNECTION_THRESHOLD_MIN} minutos.`}
     >
       {/* Toolbar */}
-      <div className="flex justify-end mb-4 relative">
-        {showLoading && <div className="absolute inset-0 rounded-lg bg-white/60 backdrop-blur-[1px]" />}
-        <Button onClick={handleRefresh} disabled={showLoading}>
-          <ArrowPathIcon className={["w-5 h-5", showLoading ? "animate-spin" : ""].join(" ")} />
-          {showLoading ? "Actualizando..." : "Refrescar datos"}
-        </Button>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <div className="text-xs sm:text-sm text-gray-500">
+          {totalDevices > 0 ? (
+            <>
+              <span className="font-semibold text-gray-700">
+                {totalDevices}
+              </span>{" "}
+              dispositivo{totalDevices === 1 ? "" : "s"} activos en esta vista.
+            </>
+          ) : (
+            "No hay dispositivos filtrados para esta vista."
+          )}
+        </div>
+
+        <div className="relative inline-flex">
+          {showLoading && (
+            <div className="absolute inset-0 rounded-lg bg-white/60 backdrop-blur-[1px]" />
+          )}
+          <Button
+            onClick={handleRefresh}
+            disabled={showLoading}
+            title="Actualizar datos de los dispositivos"
+          >
+            <ArrowPathIcon
+              className={[
+                "w-5 h-5",
+                showLoading ? "animate-spin text-gray-600" : "",
+              ].join(" ")}
+            />
+            {showLoading ? "Actualizando..." : "Refrescar datos"}
+          </Button>
+        </div>
       </div>
 
       {/* Contenido */}
@@ -273,7 +452,7 @@ const DevicesPage: React.FC = () => {
         <EmptyState onRetry={handleRefresh} />
       ) : (
         <ResponsiveTable
-          title="Dispositivos Activos"
+          title="Dispositivos activos"
           data={tableData}
           emptyMessage="No se encontraron dispositivos registrados."
           showExport
@@ -287,65 +466,74 @@ const DevicesPage: React.FC = () => {
               key: "name",
               label: "Zona / Dispositivo",
               align: "left",
-              render: (_v, row) => (
-                <div className="max-w-[260px]">
-                  <div className="font-semibold text-gray-900">
-                    {row.name || (row as any).deviceName || "Sensor"}
+              render: (_v: unknown, row: Room) => {
+                const uid =
+                  row.devEUI ||
+                  (row as any).deviceName ||
+                  (row as any).id ||
+                  null;
+
+                return (
+                  <div className="max-w-[260px]">
+                    <div className="font-semibold text-gray-900">
+                      {row.name || (row as any).deviceName || "Sensor"}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {uid ? `UID: ${uid}` : "UID no disponible"}
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {(row.devEUI || (row as any).deviceName)
-                      ? `UID: ${row.devEUI || (row as any).deviceName}`
-                      : "UID no disponible"}
-                  </div>
-                </div>
-              ),
+                );
+              },
             },
             {
               key: "battery",
               label: "Batería",
               align: "left",
-              render: (_v, row) => {
-                const key = (row.devEUI ?? row.name) as string;
-                const hist = historyData[key] as Measure[] | undefined;
-                const conn = getSmartConnection(row, hist);
-                const level = Number(
-                  (row as any).battery ?? (row as any).lastPower ?? (row as any).productivity
-                );
-                return renderBattery(Number.isFinite(level) ? level : undefined, conn.isConnected);
+              render: (_v: unknown, row: Room) => {
+                const key = getDeviceKey(row);
+                if (!key) return "—";
+                const meta = deviceMeta.get(String(key));
+                if (!meta) return "—";
+                return renderBattery(meta.battery, !!meta.conn?.isConnected);
               },
             },
             {
               key: "estado",
               label: "Estado",
               align: "left",
-              render: (_v, row) => {
-                const key = (row.devEUI ?? row.name) as string;
-                const hist = historyData[key] as Measure[] | undefined;
-                const conn = getSmartConnection(row, hist);
-                return renderConnectionStatus(conn);
+              render: (_v: unknown, row: Room) => {
+                const key = getDeviceKey(row);
+                if (!key) return null;
+                const meta = deviceMeta.get(String(key));
+                return renderConnectionStatus(meta?.conn ?? null);
               },
             },
             {
               key: "temperature",
               label: "Temperatura (°C)",
               align: "right",
-              render: (v, row) => {
-                const key = (row.devEUI ?? row.name) as string;
-                const conn = getSmartConnection(row, historyData[key] as Measure[] | undefined);
-                if (!conn.isConnected) return "—";
-                return v != null && !Number.isNaN(v) ? Number(v).toFixed(1) : "—";
+              render: (_v: unknown, row: Room) => {
+                const key = getDeviceKey(row);
+                if (!key) return "—";
+                const meta = deviceMeta.get(String(key));
+                if (!meta?.conn?.isConnected) return "—";
+                return meta.temperature != null
+                  ? meta.temperature.toFixed(1)
+                  : "—";
               },
             },
             {
               key: "humedity",
               label: "Humedad (%RH)",
               align: "right",
-              render: (v, row) => {
-                const key = (row.devEUI ?? row.name) as string;
-                const conn = getSmartConnection(row, historyData[key] as Measure[] | undefined);
-                if (!conn.isConnected) return "—";
-                const h = v ?? (row as any).humidity ?? (row as any).data?.humidity ?? null;
-                return h != null && !Number.isNaN(h) ? Number(h).toFixed(1) : "—";
+              render: (_v: unknown, row: Room) => {
+                const key = getDeviceKey(row);
+                if (!key) return "—";
+                const meta = deviceMeta.get(String(key));
+                if (!meta?.conn?.isConnected) return "—";
+                return meta.humidity != null
+                  ? meta.humidity.toFixed(1)
+                  : "—";
               },
             },
           ]}
@@ -370,7 +558,9 @@ const DevicesPage: React.FC = () => {
       {showLoading && (
         <div className="fixed bottom-4 right-4 px-3 py-2 rounded-lg bg-white/90 border border-gray-200 shadow-md flex items-center gap-2 backdrop-blur">
           <ArrowPathIcon className="w-4 h-4 animate-spin text-gray-600" />
-          <span className="text-sm text-gray-700">Actualizando dispositivos…</span>
+          <span className="text-sm text-gray-700">
+            Actualizando dispositivos…
+          </span>
         </div>
       )}
     </PageContainer>

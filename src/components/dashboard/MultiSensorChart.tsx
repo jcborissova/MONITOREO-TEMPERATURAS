@@ -25,14 +25,12 @@ import { CloudIcon, FireIcon, ArrowPathIcon } from "@heroicons/react/24/solid";
    Tipos / Helpers
 ========================================= */
 
-// NUEVO: ahora incluye 12h y 72h
 type Quick = "12h" | "24h" | "72h" | "7d" | "30d" | "all" | "custom";
 
-// NUEVO: agregamos divisiones para 12h y 72h
 const PRESET_DIVISIONS: Record<Exclude<Quick, "all" | "custom">, number> = {
-  "12h": 144,  // ~5 min
-  "24h": 144,  // ~10 min
-  "72h": 288,  // ~15 min
+  "12h": 144, // ~5 min
+  "24h": 144, // ~10 min
+  "72h": 288, // ~15 min
   "7d": 504,
   "30d": 1440,
 };
@@ -127,7 +125,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   const weekAgo = new Date(today.getTime() - 7 * 24 * 3600 * 1000);
   const weekAgoStr = toYMD(weekAgo);
 
-  // NUEVO: ahora default sigue siendo 7d, pero el tipo incluye más opciones
   const [quick, setQuick] = useState<Quick>("7d");
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
     start: weekAgoStr,
@@ -227,14 +224,12 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
   // -------- Ventana actual en ms --------
   const windowMs = useMemo(() => {
-    // CUSTOM con fecha/hora
     if (quick === "custom" && customStart && customEnd) {
       const s = toSafeDate(customStart).getTime();
       const e = adjustEndForNow(toSafeDate(customEnd).getTime());
       return [s, e] as const;
     }
 
-    // TODO
     if (quick === "all") {
       const has = !!unified.minIso && !!unified.maxIso;
       const endMs = adjustEndForNow(has ? toSafeDate(unified.maxIso).getTime() : Date.now());
@@ -242,7 +237,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       return [startMs, endMs] as const;
     }
 
-    // NUEVO: quicks basados en horas reales
     if (quick === "12h" || quick === "24h" || quick === "72h") {
       const hours = quick === "12h" ? 12 : quick === "24h" ? 24 : 72;
       const endMs = adjustEndForNow(Date.now());
@@ -250,7 +244,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       return [startMs, endMs] as const;
     }
 
-    // Resto: quicks basados en días (7d, 30d) usando dateRange
+    // 7d / 30d — por días completos
     const s = startOfDayLocal(dateRange.start).getTime();
     const e = endOfDayLocal(dateRange.end).getTime();
     const { start: todayStart, end: todayEnd } = dayBoundsMs(new Date());
@@ -258,6 +252,9 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const endAdj = includesToday ? adjustEndForNow(e) : e;
     return [s, endAdj] as const;
   }, [quick, dateRange.start, dateRange.end, customStart, customEnd, unified.minIso, unified.maxIso]);
+
+  const windowStartMs = windowMs[0];
+  const windowEndMs = windowMs[1];
 
   // -------- Helpers para pedir rango (ISO) --------
   const computeRangeISO = (): { fromISO: string; toISO: string } => {
@@ -273,14 +270,12 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       fromISO = from.toISOString();
       toISO = to.toISOString();
     } else if (quick === "12h" || quick === "24h" || quick === "72h") {
-      // NUEVO: rangos reales de horas atrás
       const hours = quick === "12h" ? 12 : quick === "24h" ? 24 : 72;
       const to = new Date();
       const from = new Date(to.getTime() - hours * 3600 * 1000);
       fromISO = from.toISOString();
       toISO = to.toISOString();
     } else {
-      // 7d / 30d — por días completos
       fromISO = startOfDayLocal(dateRange.start).toISOString();
       toISO = endOfDayLocal(dateRange.end).toISOString();
     }
@@ -332,7 +327,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const dur = Math.max(1, endMs - startMs);
     const H = 3600 * 1000;
 
-    // NUEVO: usamos divisiones distintas según duración
     let divisions: number;
     if (dur <= 12 * H) {
       divisions = PRESET_DIVISIONS["12h"];
@@ -427,26 +421,24 @@ const MultiSensorTimelineRecharts: React.FC = () => {
 
   // -------- Recalcular líneas --------
   useEffect(() => {
-    const [startMs, endMs] = windowMs;
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    if (!Number.isFinite(windowStartMs) || !Number.isFinite(windowEndMs) || windowEndMs <= windowStartMs) {
       setBinnedData([]);
       setBrushRange({});
       return;
     }
-    const { rows, startIso, endIso } = buildBinnedData(startMs, endMs);
+    const { rows, startIso, endIso } = buildBinnedData(windowStartMs, windowEndMs);
     setBinnedData(rows);
     setRangeStartIso(startIso);
     setRangeEndIso(endIso);
     const endIdx = Math.max(0, rows.length - 1);
     setBrushRange({ startIndex: 0, endIndex: endIdx });
     setBrushKey((k) => k + 1);
-  }, [windowMs[0], windowMs[1], unified.time.join("|")]);
+  }, [windowStartMs, windowEndMs, unified.time]);
 
   // -------- Autorefresco cada 10 min si incluye hoy --------
   useEffect(() => {
-    const [s, e] = windowMs;
     const { start: tS, end: tE } = dayBoundsMs(new Date());
-    const includesToday = e >= tS && s <= tE;
+    const includesToday = windowEndMs >= tS && windowStartMs <= tE;
     if (!includesToday) return;
 
     const tick = async () => {
@@ -454,8 +446,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
         await refreshData?.();
         const { fromISO, toISO } = computeRangeISO();
         await fetchHistoryRange?.({ from: fromISO, to: toISO, pageSize: 500, maxPages: 50 });
-        const [startMs] = windowMs;
-        const { rows, startIso, endIso } = buildBinnedData(startMs, adjustEndForNow(Date.now()));
+        const { rows, startIso, endIso } = buildBinnedData(windowStartMs, adjustEndForNow(Date.now()));
         setBinnedData(rows);
         setRangeStartIso(startIso);
         setRangeEndIso(endIso);
@@ -467,13 +458,12 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const bucket = 10 * 60 * 1000;
     const id = window.setInterval(tick, bucket);
     return () => window.clearInterval(id);
-  }, [windowMs[0], windowMs[1], refreshData, fetchHistoryRange, quick, dateRange.start, dateRange.end, customStart, customEnd]);
+  }, [windowStartMs, windowEndMs, refreshData, fetchHistoryRange, quick, dateRange.start, dateRange.end, customStart, customEnd]);
 
   // -------- UI: acciones de rango --------
   const applyQuick = (k: Quick) => {
     setRangeError("");
 
-    // NUEVO: quicks por horas — solo cambiamos el tipo
     if (k === "12h" || k === "24h" || k === "72h") {
       setQuick(k);
       return;
@@ -492,7 +482,6 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     } else if (k === "all") {
       setQuick("all");
     } else {
-      // custom
       setQuick("custom");
     }
   };
@@ -572,37 +561,37 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   const [noDataSpans, setNoDataSpans] = useState<GapSpan[]>([]);
 
   const recomputeNoDataSpans = useCallback(() => {
-    const [startMs, endMs] = windowMs;
     const rawTimes = unified.time
       .map((iso) => toSafeDate(iso).getTime())
-      .filter((t) => t >= startMs && t <= endMs)
+      .filter((t) => t >= windowStartMs && t <= windowEndMs)
       .sort((a, b) => a - b);
 
     const spans: GapSpan[] = [];
-    let prev = startMs;
 
     if (rawTimes.length === 0) {
-      if (endMs - startMs >= GAP_MS) {
+      if (windowEndMs - windowStartMs >= GAP_MS) {
         spans.push({
-          startIso: new Date(startMs).toISOString(),
-          endIso: new Date(endMs).toISOString(),
-          durationMin: Math.round((endMs - startMs) / 60000),
+          startIso: new Date(windowStartMs).toISOString(),
+          endIso: new Date(windowEndMs).toISOString(),
+          durationMin: Math.round((windowEndMs - windowStartMs) / 60000),
         });
       }
       setNoDataSpans(spans);
       return;
     }
 
-    if (rawTimes[0] - startMs >= GAP_MS) {
+    // Segmento inicial
+    if (rawTimes[0] - windowStartMs >= GAP_MS) {
       spans.push({
-        startIso: new Date(startMs).toISOString(),
+        startIso: new Date(windowStartMs).toISOString(),
         endIso: new Date(rawTimes[0]).toISOString(),
-        durationMin: Math.round((rawTimes[0] - startMs) / 60000),
+        durationMin: Math.round((rawTimes[0] - windowStartMs) / 60000),
       });
     }
-    prev = rawTimes[0];
 
+    // Segmentos intermedios
     for (let i = 1; i < rawTimes.length; i++) {
+      const prev = rawTimes[i - 1];
       const t = rawTimes[i];
       if (t - prev >= GAP_MS) {
         spans.push({
@@ -611,19 +600,20 @@ const MultiSensorTimelineRecharts: React.FC = () => {
           durationMin: Math.round((t - prev) / 60000),
         });
       }
-      prev = t;
     }
 
-    if (endMs - rawTimes[rawTimes.length - 1] >= GAP_MS) {
+    // Segmento final
+    const last = rawTimes[rawTimes.length - 1];
+    if (windowEndMs - last >= GAP_MS) {
       spans.push({
-        startIso: new Date(rawTimes[rawTimes.length - 1]).toISOString(),
-        endIso: new Date(endMs).toISOString(),
-        durationMin: Math.round((endMs - startMs) / 60000),
+        startIso: new Date(last).toISOString(),
+        endIso: new Date(windowEndMs).toISOString(),
+        durationMin: Math.round((windowEndMs - last) / 60000),
       });
     }
 
     setNoDataSpans(spans);
-  }, [windowMs[0], windowMs[1], unified.time.join("|")]);
+  }, [windowStartMs, windowEndMs, unified.time]);
 
   useEffect(() => {
     recomputeNoDataSpans();
@@ -639,6 +629,26 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   const worstGapMin = noDataSpans.length
     ? Math.max(...noDataSpans.map((g) => g.durationMin))
     : 0;
+
+  // -------- Estados derivados de datos --------
+  const hasRawInWindow = useMemo(() => {
+    if (!unified.time.length) return false;
+    return unified.time.some((iso) => {
+      const t = toSafeDate(iso).getTime();
+      return t >= windowStartMs && t <= windowEndMs;
+    });
+  }, [unified.time, windowStartMs, windowEndMs]);
+
+  const hasNumericBinned = useMemo(() => {
+    if (!binnedData.length || !unified.names.length) return false;
+    const metricKeys = unified.names.flatMap((n) => [`${n} °C`, `${n} %RH`]);
+    return binnedData.some((row) =>
+      metricKeys.some((key) => typeof row[key] === "number")
+    );
+  }, [binnedData, unified.names]);
+
+  const showNoDataOverlay =
+    sensorsReady && !isRangeLoading && (!hasRawInWindow || !hasNumericBinned);
 
   return (
     <div className="w-full min-w-0">
@@ -791,6 +801,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
           aria-busy={isRangeLoading}
           aria-live="polite"
         >
+          {/* Overlay de carga */}
           <div
             className={[
               "absolute inset-0 z-[1] transition-opacity duration-200 pointer-events-none",
@@ -809,6 +820,19 @@ const MultiSensorTimelineRecharts: React.FC = () => {
               <div className="flex items-center gap-3 px-3 py-2 rounded-full bg-white/85 border border-gray-200 shadow-sm text-sm text-gray-700">
                 <ArrowPathIcon className="w-5 h-5 animate-spin text-blue-600" />
                 Trayendo datos…
+              </div>
+            </div>
+          )}
+
+          {/* Overlay cuando NO hay datos en el periodo */}
+          {showNoDataOverlay && (
+            <div className="absolute inset-0 z-[2] flex items-center justify-center pointer-events-none">
+              <div className="px-4 py-3 rounded-xl bg-white/95 border border-dashed border-gray-300 shadow-sm text-center max-w-xs">
+                <p className="text-sm font-medium text-gray-900">Sin datos en este periodo</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  No se encontraron mediciones de sensores para el rango seleccionado.
+                  Prueba con otro rango de fechas u horas.
+                </p>
               </div>
             </div>
           )}
@@ -852,7 +876,13 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                     const ts = typeof label === "string" ? new Date(label) : null;
                     const gap = typeof label === "string" && isInGap(label);
 
-                    const rows = (payload ?? []).filter((p: any) => typeof p?.value === "number");
+                    const rows = (payload ?? []).filter(
+                      (p: any) => typeof p?.value === "number"
+                    );
+                    const hasValues = rows.length > 0;
+                    const noDataAtPoint = !gap && !hasValues;
+
+                    const showWholeRangeNoData = noDataAtPoint && !hasRawInWindow;
 
                     return (
                       <div className="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-lg px-3 py-2 rounded-lg text-sm text-gray-700 max-w-[300px]">
@@ -868,34 +898,48 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                           </p>
                         )}
 
+                        {/* Mensaje para huecos largos */}
                         {gap && (
                           <div className="mb-2 px-2 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200 text-xs">
-                            Sin reportes de sensores en este periodo (≥ {GAP_MINUTES} min)
+                            Sin reportes de sensores en este periodo (≥ {GAP_MINUTES} min).
+                          </div>
+                        )}
+
+                        {/* Mensaje cuando no hay datos en el bin */}
+                        {noDataAtPoint && !showWholeRangeNoData && (
+                          <div className="mb-2 px-2 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200 text-xs">
+                            No hay datos reportados por los sensores en este intervalo.
+                          </div>
+                        )}
+
+                        {/* Mensaje cuando no hay datos en TODO el periodo */}
+                        {showWholeRangeNoData && (
+                          <div className="mb-2 px-2 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200 text-xs">
+                            No se encontraron datos de sensores en todo el periodo seleccionado.
+                            Ajusta el rango para ver mediciones disponibles.
                           </div>
                         )}
 
                         <div className="space-y-0.5">
-                          {rows.length === 0 && !gap && (
-                            <div className="text-xs text-gray-500">Sin datos en este punto</div>
-                          )}
-                          {rows.map((p: any, i: number) => {
-                            const name: string = p?.name ?? "";
-                            const v = typeof p?.value === "number" ? p.value : null;
-                            if (v == null) return null;
-                            const isTemp = name.endsWith("°C");
-                            return (
-                              <div key={i} className="flex items-center gap-2">
-                                <span
-                                  className="inline-block w-2.5 h-2.5 rounded"
-                                  style={{ background: p.color }}
-                                />
-                                <span className="text-gray-600">{name}:</span>
-                                <span className="font-semibold text-gray-900">
-                                  {v.toFixed(1)} {isTemp ? "°C" : "%"}
-                                </span>
-                              </div>
-                            );
-                          })}
+                          {hasValues &&
+                            rows.map((p: any, i: number) => {
+                              const name: string = p?.name ?? "";
+                              const v = typeof p?.value === "number" ? p.value : null;
+                              if (v == null) return null;
+                              const isTemp = name.endsWith("°C");
+                              return (
+                                <div key={i} className="flex items-center gap-2">
+                                  <span
+                                    className="inline-block w-2.5 h-2.5 rounded"
+                                    style={{ background: p.color }}
+                                  />
+                                  <span className="text-gray-600">{name}:</span>
+                                  <span className="font-semibold text-gray-900">
+                                    {v.toFixed(1)} {isTemp ? "°C" : "%"}
+                                  </span>
+                                </div>
+                              );
+                            })}
                         </div>
                       </div>
                     );
@@ -944,8 +988,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                           dot={false}
                           isAnimationActive
                           animationDuration={600}
-                          // IMPORTANTE: líneas continuas
-                          connectNulls={true}
+                          connectNulls={false}
                         />
                       )}
                       {showHum && isSeriesVisible(humKey) && (
@@ -960,7 +1003,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                           dot={false}
                           isAnimationActive
                           animationDuration={600}
-                          connectNulls={true}
+                          connectNulls={false}
                         />
                       )}
                     </React.Fragment>
@@ -990,7 +1033,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
           </div>
         </div>
 
-        {/* Leyenda interactiva abajo: apagar/encender categorías */}
+        {/* Leyenda interactiva abajo */}
         <div className="mt-3 space-y-2">
           <div className="flex flex-wrap gap-2 text-[11px] sm:text-xs">
             {legendItems.map((item) => {

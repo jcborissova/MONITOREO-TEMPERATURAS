@@ -3,7 +3,16 @@
 "use client";
 import React, { useMemo, useState, useContext } from "react";
 import type { Room } from "../../types/types";
-import { Wifi, WifiOff, Thermometer, Droplet, Battery, Clock, Search } from "lucide-react";
+import {
+  Wifi,
+  WifiOff,
+  Thermometer,
+  Droplet,
+  Battery,
+  Clock,
+  Search,
+  ArrowRight,
+} from "lucide-react";
 import { SensorsContext } from "../../context/SensorsContext";
 import { WeatherContext } from "../../context/WeatherContext";
 
@@ -18,9 +27,9 @@ type Thresholds = { temperature?: Range; humidity?: Range; tolerance?: number };
 interface SensorCardsProps {
   rooms: Room[];
   loading?: boolean;
-  liveWindowMin?: number;
+  liveWindowMin?: number; // minutos para marcar "stale"
   showControls?: boolean;
-  onCardClick?: (room: Room) => void;
+  onCardClick?: (room: Room) => void; // abre modal
   thresholds?: Thresholds;
   className?: string;
 }
@@ -52,7 +61,12 @@ const coerceDate = (v: any): Date | null => {
 
 const formatAbs = (d: Date | null) =>
   d
-    ? d.toLocaleString("es-DO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+    ? d.toLocaleString("es-DO", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
     : "—";
 
 const formatRel = (from: Date | null) => {
@@ -66,38 +80,58 @@ const formatRel = (from: Date | null) => {
   return `hace ${d} d`;
 };
 
-const ellipsize = (s: string, max = 42) => (s?.length > max ? s.slice(0, max - 1) + "…" : s);
+const ellipsize = (s: string, max = 42) =>
+  s?.length > max ? s.slice(0, max - 1) + "…" : s;
 
 const toneFor = (value: number | null, range?: Range, tol = 2) => {
-  if (value == null || !Number.isFinite(value)) return { text: "text-gray-600", chip: "bg-gray-50 border-gray-200" };
-  if (!range?.min && !range?.max) return { text: "text-gray-900", chip: "bg-gray-50 border-gray-200" };
+  if (value == null || !Number.isFinite(value))
+    return { text: "text-gray-600", chip: "bg-gray-50 border-gray-200" };
+  if (!range?.min && !range?.max)
+    return { text: "text-gray-900", chip: "bg-gray-50 border-gray-200" };
 
   const { min, max } = range;
-  const near = (edge: number | undefined, v: number) => (edge == null ? false : Math.abs(v - edge) <= tol);
+  const near = (edge: number | undefined, v: number) =>
+    edge == null ? false : Math.abs(v - edge) <= tol;
   const outBelow = min != null && value < min;
   const outAbove = max != null && value > max;
 
-  if (!outBelow && !outAbove) return { text: "text-emerald-700", chip: "bg-emerald-50 border-emerald-200" };
+  if (!outBelow && !outAbove)
+    return { text: "text-emerald-700", chip: "bg-emerald-50 border-emerald-200" };
   if ((outBelow && near(min, value)) || (outAbove && near(max, value)))
     return { text: "text-amber-700", chip: "bg-amber-50 border-amber-200" };
   return { text: "text-rose-700", chip: "bg-rose-50 border-rose-200" };
 };
 
-const headerAccent = (isConnected: boolean, temp: number | null, hum: number | null, th?: Thresholds) => {
+const headerAccent = (
+  isConnected: boolean,
+  temp: number | null,
+  hum: number | null,
+  th?: Thresholds
+) => {
   if (!isConnected) return "bg-gray-200";
   const t = toneFor(temp, th?.temperature, th?.tolerance ?? 2).chip;
   const h = toneFor(hum, th?.humidity, th?.tolerance ?? 2).chip;
-  const rank = (chip: string) => (chip.includes("rose") ? 3 : chip.includes("amber") ? 2 : chip.includes("emerald") ? 1 : 0);
+  const rank = (chip: string) =>
+    chip.includes("rose")
+      ? 3
+      : chip.includes("amber")
+      ? 2
+      : chip.includes("emerald")
+      ? 1
+      : 0;
   const worst = rank(t) >= rank(h) ? t : h;
 
-  if (worst.includes("rose")) return "bg-gradient-to-r from-rose-500/80 to-rose-400/70";
-  if (worst.includes("amber")) return "bg-gradient-to-r from-amber-500/80 to-amber-400/70";
-  if (worst.includes("emerald")) return "bg-gradient-to-r from-emerald-500/80 to-emerald-400/70";
+  if (worst.includes("rose"))
+    return "bg-gradient-to-r from-rose-500/80 to-rose-400/70";
+  if (worst.includes("amber"))
+    return "bg-gradient-to-r from-amber-500/80 to-amber-400/70";
+  if (worst.includes("emerald"))
+    return "bg-gradient-to-r from-emerald-500/80 to-emerald-400/70";
   return "bg-gray-300";
 };
 
 /* =========================
-   Resolución de histórico (idéntico al dashboard)
+   Resolución de histórico
 ========================= */
 type HistoryDict = Record<string, any[]>;
 
@@ -109,7 +143,11 @@ const buildLooseIndex = (historyData: HistoryDict) => {
   return index;
 };
 
-const pickHistory = (sensor: any, historyData: HistoryDict, looseIndex: Map<string, string>) => {
+const pickHistory = (
+  sensor: any,
+  historyData: HistoryDict,
+  looseIndex: Map<string, string>
+) => {
   const cands = [sensor?.devEUI, sensor?.name, sensor?.deviceName]
     .map((x) => (x == null ? "" : String(x)))
     .filter(Boolean);
@@ -122,113 +160,240 @@ const pickHistory = (sensor: any, historyData: HistoryDict, looseIndex: Map<stri
 };
 
 /* =========================
-   Tarjeta
+   Subcomponentes pequeños
 ========================= */
-const SensorCard: React.FC<{
-  room: Room;
+
+const StatusPill = ({
+  isConnected,
+  isStale,
+}: {
   isConnected: boolean;
-  lastSeen: Date | null;
-  thresholds?: Thresholds;
-  onClick?: (room: Room) => void;
-}> = ({ room, isConnected, lastSeen, thresholds }) => {
-  const name = (room as any).deviceName || room.name || "Sensor";
+  isStale: boolean;
+}) => {
+  if (!isConnected) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600">
+        <span className="h-1.5 w-1.5 rounded-full bg-gray-400" />
+        Sin conexión
+      </span>
+    );
+  }
 
-  // 1) Si NO está conectado, no mostramos datos (metrics y batería -> "—")
-  const temp = isConnected ? clampNum((room as any).temperature) : null;
-  const hum = isConnected ? clampNum((room as any).humedity ?? (room as any).humidity) : null;
-
-  const battery = (() => {
-    if (!isConnected) return null;
-    const v = (room as any).battery ?? (room as any).batteryPct ?? (room as any).lastPower;
-    const n = Number(v);
-    return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
-  })();
-
-  // 2) Tonos neutros cuando está offline
-  const tTone = isConnected ? toneFor(temp, thresholds?.temperature, thresholds?.tolerance ?? 2) : { text: "text-gray-600", chip: "bg-gray-50 border-gray-200" };
-  const hTone = isConnected ? toneFor(hum, thresholds?.humidity, thresholds?.tolerance ?? 2) : { text: "text-gray-600", chip: "bg-gray-50 border-gray-200" };
-
-  const accent = headerAccent(isConnected, temp, hum, thresholds);
-
-  function onCardClick(_room: Room): void {
-    throw new Error("Function not implemented.");
+  if (isStale) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        Fuera de ventana
+      </span>
+    );
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => onCardClick?.(room)}
-      className="group text-left rounded-xl border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      En ventana
+    </span>
+  );
+};
+
+const SkeletonCard = () => (
+  <div className="rounded-xl border border-gray-200 bg-white">
+    <div className="h-1.5 w-full bg-gray-100 rounded-t-xl" />
+    <div className="p-4">
+      <div className="animate-pulse space-y-3">
+        <div className="h-4 w-2/3 bg-gray-100 rounded" />
+        <div className="h-3 w-1/3 bg-gray-100 rounded" />
+        <div className="h-16 bg-gray-50 rounded" />
+      </div>
+    </div>
+  </div>
+);
+
+/* =========================
+   Tarjeta
+========================= */
+interface SensorCardProps {
+  room: Room;
+  isConnected: boolean;
+  lastSeen: Date | null;
+  isStale: boolean;
+  thresholds?: Thresholds;
+  onClick?: (room: Room) => void;
+}
+
+const SensorCard: React.FC<SensorCardProps> = ({
+  room,
+  isConnected,
+  lastSeen,
+  isStale,
+  thresholds,
+  onClick,
+}) => {
+  const name = (room as any).deviceName || room.name || "Sensor";
+
+  // Métricas solo si está conectado
+  const temp = isConnected ? clampNum((room as any).temperature) : null;
+  const hum = isConnected
+    ? clampNum((room as any).humedity ?? (room as any).humidity)
+    : null;
+
+  const battery = (() => {
+    if (!isConnected) return null;
+    const v =
+      (room as any).battery ??
+      (room as any).batteryPct ??
+      (room as any).lastPower;
+    const n = Number(v);
+    return Number.isFinite(n)
+      ? Math.max(0, Math.min(100, Math.round(n)))
+      : null;
+  })();
+
+  const tTone = isConnected
+    ? toneFor(temp, thresholds?.temperature, thresholds?.tolerance ?? 2)
+    : { text: "text-gray-600", chip: "bg-gray-50 border-gray-200" };
+  const hTone = isConnected
+    ? toneFor(hum, thresholds?.humidity, thresholds?.tolerance ?? 2)
+    : { text: "text-gray-600", chip: "bg-gray-50 border-gray-200" };
+
+  const accent = headerAccent(isConnected, temp, hum, thresholds);
+
+  const devEui = (room as any).devEUI ?? "";
+
+  return (
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick?.(room)}
+      onKeyDown={(e) => e.key === "Enter" && onClick?.(room)}
+      className="group text-left rounded-xl border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70"
       title={name}
     >
+      {/* Barra superior */}
       <div className={`h-1.5 w-full rounded-t-xl ${accent}`} />
 
       <div className="p-3.5">
+        {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className={`inline-flex h-2.5 w-2.5 rounded-full ${isConnected ? "bg-emerald-500" : "bg-gray-300"}`} />
-              <h3 className="font-medium text-gray-900 truncate">{ellipsize(name)}</h3>
+              <span
+                className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                  isConnected ? "bg-emerald-500" : "bg-gray-300"
+                }`}
+              />
+              <h3 className="font-medium text-gray-900 truncate">
+                {ellipsize(name)}
+              </h3>
             </div>
-            <p className="mt-1 text-[11px] text-gray-500 flex items-center gap-1.5">
+
+            <p className="mt-1 text-[11px] text-gray-500 flex flex-wrap items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" />
               <span className="text-gray-600">{formatAbs(lastSeen)}</span>
               <span className="text-gray-400">· {formatRel(lastSeen)}</span>
             </p>
           </div>
 
-          <div className="shrink-0 rounded-lg border border-gray-200 p-2">
-            {isConnected ? <Wifi className="w-4 h-4 text-emerald-600" /> : <WifiOff className="w-4 h-4 text-gray-500" />}
+          <div className="flex flex-col items-end gap-1">
+            <div className="shrink-0 rounded-lg border border-gray-200 p-2 bg-white">
+              {isConnected ? (
+                <Wifi className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <WifiOff className="w-4 h-4 text-gray-500" />
+              )}
+            </div>
+            <StatusPill isConnected={isConnected} isStale={isStale} />
           </div>
         </div>
 
         {!isConnected && (
-          <div className="mt-2 text-[11px] text-gray-500">Sin conexión — métricas ocultas.</div>
+          <div className="mt-2 text-[11px] text-gray-500">
+            Sin conexión — métricas ocultas.
+          </div>
         )}
 
+        {/* Métricas */}
         <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-          <div className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border ${tTone.chip}`}>
+          <div
+            className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border ${tTone.chip}`}
+          >
             <div className="rounded-md border bg-white/60 p-1.5">
               <Thermometer className={`w-4 h-4 ${tTone.text}`} />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wide text-gray-500">Temp</p>
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">
+                Temp
+              </p>
               <p className={`font-semibold leading-5 ${tTone.text}`}>
-                {isConnected && Number.isFinite(temp) ? `${(temp as number).toFixed(1)}°C` : "—"}
+                {isConnected && Number.isFinite(temp)
+                  ? `${(temp as number).toFixed(1)}°C`
+                  : "—"}
               </p>
             </div>
           </div>
 
-          <div className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border ${hTone.chip}`}>
+          <div
+            className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border ${hTone.chip}`}
+          >
             <div className="rounded-md border bg-white/60 p-1.5">
               <Droplet className={`w-4 h-4 ${hTone.text}`} />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wide text-gray-500">Humedad</p>
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">
+                Humedad
+              </p>
               <p className={`font-semibold leading-5 ${hTone.text}`}>
-                {isConnected && Number.isFinite(hum) ? `${(hum as number).toFixed(1)}%` : "—"}
+                {isConnected && Number.isFinite(hum)
+                  ? `${(hum as number).toFixed(1)}%`
+                  : "—"}
               </p>
             </div>
           </div>
         </div>
 
+        {/* Batería + devEUI */}
         <div className="mt-3 space-y-1.5">
           {battery != null && (
             <div className="flex items-center gap-2 text-xs text-gray-600">
               <Battery className="w-3.5 h-3.5" />
               <div className="flex-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
                 <div
-                  className={`h-full rounded-full ${battery < 20 ? "bg-rose-500" : battery < 50 ? "bg-amber-500" : "bg-emerald-500"}`}
+                  className={`h-full rounded-full ${
+                    battery < 20
+                      ? "bg-rose-500"
+                      : battery < 50
+                      ? "bg-amber-500"
+                      : "bg-emerald-500"
+                  }`}
                   style={{ width: `${battery}%` }}
                 />
               </div>
               <span className="tabular-nums">{battery}%</span>
             </div>
           )}
-          <div className="text-[11px] text-gray-400 truncate">{(room as any).devEUI ?? ""}</div>
+          {devEui && (
+            <div className="text-[11px] text-gray-400 truncate">
+              {devEui}
+            </div>
+          )}
+        </div>
+
+        {/* Botón Ver detalle */}
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation(); // evita doble disparo
+              onClick?.(room);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-300 group-hover:bg-gray-100 group-hover:border-gray-300"
+          >
+            Ver detalle
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
-    </button>
+    </article>
   );
 };
 
@@ -238,6 +403,7 @@ const SensorCard: React.FC<{
 const SensorCards: React.FC<SensorCardsProps> = ({
   rooms,
   loading = false,
+  liveWindowMin,
   showControls = true,
   onCardClick,
   thresholds: globalFallback = {},
@@ -250,11 +416,18 @@ const SensorCards: React.FC<SensorCardsProps> = ({
   const [sortKey, setSortKey] = useState<SortKey>("status");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  const looseIndex = useMemo(() => buildLooseIndex(historyData || {}), [historyData]);
+  const looseIndex = useMemo(
+    () => buildLooseIndex(historyData || {}),
+    [historyData]
+  );
 
   const items = useMemo(() => {
+    const now = Date.now();
+    const liveMs = liveWindowMin ? liveWindowMin * 60_000 : null;
+
     const mapped = (rooms ?? []).map((r, i) => {
-      const name = (r as any).deviceName || r.name || `Sensor ${i + 1}`;
+      const name =
+        (r as any).deviceName || r.name || `Sensor ${i + 1}`;
       const hist = pickHistory(r, historyData || {}, looseIndex);
       const conn = getSmartConnection(r, hist);
 
@@ -264,40 +437,67 @@ const SensorCards: React.FC<SensorCardsProps> = ({
             (hist[hist.length - 1] as any).created_at ??
             (hist[hist.length - 1] as any).updatedAt ??
             (hist[hist.length - 1] as any).date
-          : (r as any).updatedAt ?? (r as any).lastSeen ?? (r as any).timestamp ?? (r as any).date) ?? null;
+          : (r as any).updatedAt ??
+            (r as any).lastSeen ??
+            (r as any).timestamp ??
+            (r as any).date) ?? null;
 
       const lastSeen = coerceDate(lastRaw);
+      const lastMs = lastSeen ? lastSeen.getTime() : 0;
+
+      const isStale =
+        !!liveMs && !!lastMs ? now - lastMs > liveMs : false;
+
       const temp = clampNum((r as any).temperature);
       const hum = clampNum((r as any).humedity ?? (r as any).humidity);
 
       return {
         name,
         status: conn.isConnected ? 1 : 0,
-        updated: lastSeen ? lastSeen.getTime() : 0,
+        updated: lastMs,
         temp: temp ?? -1e9,
         hum: hum ?? -1e9,
         lastSeen,
         isConnected: conn.isConnected,
+        isStale,
         room: r,
       };
     });
 
     const qn = q.trim().toLowerCase();
-    const filtered = qn ? mapped.filter((d) => d.name.toLowerCase().includes(qn)) : mapped;
+    const filtered = qn
+      ? mapped.filter((d) =>
+          d.name.toLowerCase().includes(qn)
+        )
+      : mapped;
 
     const dir = sortDir === "asc" ? 1 : -1;
     const sorted = [...filtered].sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
-      if (av === bv) return a.name.localeCompare(b.name) * dir;
+      if (av === bv)
+        return a.name.localeCompare(b.name) * dir;
       return av > bv ? dir : -dir;
     });
 
     return sorted;
-  }, [rooms, q, sortKey, sortDir, historyData, getSmartConnection, looseIndex]);
+  }, [
+    rooms,
+    q,
+    sortKey,
+    sortDir,
+    historyData,
+    getSmartConnection,
+    looseIndex,
+    liveWindowMin,
+  ]);
+
+  const total = rooms?.length ?? 0;
 
   return (
-    <section className={`bg-white border border-gray-200 rounded-2xl p-4 ${className}`}>
+    <section
+      className={`bg-white border border-gray-200 rounded-2xl p-4 ${className}`}
+    >
       {showControls && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[200px]">
@@ -310,27 +510,34 @@ const SensorCards: React.FC<SensorCardsProps> = ({
             />
           </div>
 
-          <div className="ml-auto flex items-center gap-2 text-sm">
-            <label className="text-gray-600">Orden</label>
-            <select
-              className="border border-gray-300 rounded-md py-1.5 px-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-              value={`${sortKey}:${sortDir}`}
-              onChange={(e) => {
-                const [k, d] = e.target.value.split(":") as [SortKey, SortDir];
-                setSortKey(k);
-                setSortDir(d);
-              }}
-            >
-              <option value="status:desc">Conectados primero</option>
-              <option value="updated:desc">Más recientes</option>
-              <option value="updated:asc">Más antiguos</option>
-              <option value="temp:desc">Temp ↑</option>
-              <option value="temp:asc">Temp ↓</option>
-              <option value="hum:desc">Humedad ↑</option>
-              <option value="hum:asc">Humedad ↓</option>
-              <option value="name:asc">Nombre A–Z</option>
-              <option value="name:desc">Nombre Z–A</option>
-            </select>
+          <div className="flex items-center gap-3 text-xs sm:text-sm ml-auto">
+            <span className="text-gray-500">
+              {total} sensor{total === 1 ? "" : "es"}
+            </span>
+            <div className="flex items-center gap-2">
+              <label className="text-gray-600">Orden</label>
+              <select
+                className="border border-gray-300 rounded-md py-1.5 px-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 bg-white"
+                value={`${sortKey}:${sortDir}`}
+                onChange={(e) => {
+                  const [k, d] = e.target.value.split(
+                    ":"
+                  ) as [SortKey, SortDir];
+                  setSortKey(k);
+                  setSortDir(d);
+                }}
+              >
+                <option value="status:desc">Conectados primero</option>
+                <option value="updated:desc">Más recientes</option>
+                <option value="updated:asc">Más antiguos</option>
+                <option value="temp:desc">Temp ↑</option>
+                <option value="temp:asc">Temp ↓</option>
+                <option value="hum:desc">Humedad ↑</option>
+                <option value="hum:asc">Humedad ↓</option>
+                <option value="name:asc">Nombre A–Z</option>
+                <option value="name:desc">Nombre Z–A</option>
+              </select>
+            </div>
           </div>
         </div>
       )}
@@ -338,25 +545,19 @@ const SensorCards: React.FC<SensorCardsProps> = ({
       {loading ? (
         <div className="grid [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))] gap-3 sm:gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-gray-200 bg-white">
-              <div className="h-1.5 w-full bg-gray-100 rounded-t-xl" />
-              <div className="p-4">
-                <div className="animate-pulse space-y-3">
-                  <div className="h-4 w-2/3 bg-gray-100 rounded" />
-                  <div className="h-3 w-1/3 bg-gray-100 rounded" />
-                  <div className="h-16 bg-gray-50 rounded" />
-                </div>
-              </div>
-            </div>
+            <SkeletonCard key={i} />
           ))}
         </div>
       ) : items.length === 0 ? (
-        <div className="text-center text-gray-500 py-8">No hay sensores para mostrar.</div>
+        <div className="py-8 text-center text-gray-500 text-sm">
+          No hay sensores para mostrar.
+        </div>
       ) : (
         <div className="grid [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))] gap-3 sm:gap-4">
           {items.map((d, i) => {
             const devEui = (d.room as any).devEUI as string | undefined;
-            const perSensor = devEui && thresholdsByDevEui[devEui];
+            const perSensor =
+              devEui && thresholdsByDevEui[devEui];
 
             const fallback: Thresholds = globalFallback ?? {};
             const resolved: Thresholds = perSensor
@@ -373,6 +574,7 @@ const SensorCards: React.FC<SensorCardsProps> = ({
                 room={d.room}
                 isConnected={d.isConnected}
                 lastSeen={d.lastSeen}
+                isStale={d.isStale}
                 thresholds={resolved}
                 onClick={onCardClick}
               />
