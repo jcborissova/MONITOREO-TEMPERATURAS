@@ -1,5 +1,9 @@
+// components/ui/ModalFooter.tsx
+"use client";
+
 import React from "react";
 import LoadingSpinner from "./LoadingSpinner";
+import { CheckCircleIcon, XMarkIcon } from "@heroicons/react/24/outline";
 
 interface ModalFooterProps {
   onCancel: () => void;
@@ -19,16 +23,19 @@ const ModalFooter: React.FC<ModalFooterProps> = ({
   isLoading = false,
 }) => (
   <div className="flex justify-end gap-3 mt-6 border-t pt-4">
+    {/* Botón Cancelar */}
     <button
       onClick={onCancel}
       disabled={isLoading}
-      className={`px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition text-sm sm:text-base ${
+      className={`px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition text-sm sm:text-base flex items-center gap-1.5 ${
         isLoading ? "opacity-50 cursor-not-allowed" : ""
       }`}
     >
-      {cancelLabel}
+      <XMarkIcon className="w-4 h-4" />
+      <span>{cancelLabel}</span>
     </button>
 
+    {/* Botón Confirmar */}
     <div className="relative group">
       <button
         onClick={!confirmDisabled && !isLoading ? onConfirm : undefined}
@@ -46,7 +53,10 @@ const ModalFooter: React.FC<ModalFooterProps> = ({
             <span>Guardando...</span>
           </>
         ) : (
-          confirmLabel
+          <>
+            <CheckCircleIcon className="w-4 h-4" />
+            <span>{confirmLabel}</span>
+          </>
         )}
       </button>
 

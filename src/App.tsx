@@ -1,8 +1,10 @@
+// src/App.tsx
 import React, { Suspense, lazy } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/layout/Layout";
 import { SensorsProvider } from "./context/SensorsContext";
 import { WeatherProvider } from "./context/WeatherContext";
+import { NotificationsProvider } from "./context/NotificationsContext";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import WarehousePlanModal from "./components/warehouse/WarehousePlan/WarehousePlanModal";
 import PrivateRoute from "./components/auth/PrivateRoute";
@@ -30,9 +32,11 @@ const Providers: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     <APIProvider apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY!} libraries={["maps"]}>
       <SensorsProvider>
         <WeatherProvider>
-          <CacheBootstrap /> {/* Resetea cachés si el usuario vuelve tras larga inactividad */}
-          {children}
-          <WarehousePlanModal />
+          <NotificationsProvider>
+            <CacheBootstrap />
+            {children}
+            <WarehousePlanModal />
+          </NotificationsProvider>
         </WeatherProvider>
       </SensorsProvider>
     </APIProvider>

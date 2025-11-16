@@ -29,7 +29,7 @@ interface SensorCardsProps {
   loading?: boolean;
   liveWindowMin?: number; // minutos para marcar "stale"
   showControls?: boolean;
-  onCardClick?: (room: Room) => void; // abre modal
+  onCardClick?: (room: Room) => void; // abre modal SOLO desde el botón
   thresholds?: Thresholds;
   className?: string;
 }
@@ -262,11 +262,7 @@ const SensorCard: React.FC<SensorCardProps> = ({
 
   return (
     <article
-      role="button"
-      tabIndex={0}
-      onClick={() => onClick?.(room)}
-      onKeyDown={(e) => e.key === "Enter" && onClick?.(room)}
-      className="group text-left rounded-xl border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70"
+      className="group text-left rounded-xl border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-default focus-visible:outline-none"
       title={name}
     >
       {/* Barra superior */}
@@ -378,15 +374,15 @@ const SensorCard: React.FC<SensorCardProps> = ({
           )}
         </div>
 
-        {/* Botón Ver detalle */}
+        {/* Botón Ver detalle – único disparador */}
         <div className="mt-3 flex justify-end">
           <button
             type="button"
             onClick={(e) => {
-              e.stopPropagation(); // evita doble disparo
+              e.stopPropagation(); // por si algún día la card tiene otro handler
               onClick?.(room);
             }}
-            className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 hover:border-gray-300 group-hover:bg-gray-100 group-hover:border-gray-300"
+            className="inline-flex items-center gap-1.5 rounded-md bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 border border-green-100 hover:bg-green-600 hover:text-white hover:border-green-600 transition-colors"
           >
             Ver detalle
             <ArrowRight className="w-3.5 h-3.5" />

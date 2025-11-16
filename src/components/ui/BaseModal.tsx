@@ -1,11 +1,17 @@
 // components/ui/BaseModal.tsx
-import React from "react";
+"use client";
+
+import React, { useEffect } from "react";
 
 interface BaseModalProps {
   isOpen: boolean;
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
+  /** Si es false, NO se cierra al hacer click afuera */
+  closeOnBackdrop?: boolean;
+  /** Cerrar con tecla ESC (por defecto true) */
+  closeOnEsc?: boolean;
 }
 
 const BaseModal: React.FC<BaseModalProps> = ({
@@ -13,13 +19,35 @@ const BaseModal: React.FC<BaseModalProps> = ({
   onClose,
   children,
   className = "",
+  closeOnBackdrop = true,
+  closeOnEsc = true,
 }) => {
+  // Cerrar con ESC
+  useEffect(() => {
+    if (!isOpen || !closeOnEsc) return;
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isOpen, closeOnEsc, onClose]);
+
   if (!isOpen) return null;
+
+  const handleBackdropClick = () => {
+    if (!closeOnBackdrop) return; // 👉 no cerrar por click afuera si está desactivado
+    onClose();
+  };
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-3"
-      onClick={onClose}
+      onClick={handleBackdropClick}
     >
       <div
         onClick={(e) => e.stopPropagation()}

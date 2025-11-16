@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+"use client";
+
 import React, { useState, useEffect, useMemo } from "react";
 import BaseModal from "../ui/BaseModal";
 import ModalHeader from "../ui/ModalHeader";
@@ -9,19 +11,21 @@ import {
   getThresholdByDevEui,
   upsertThresholdByDevEui,
 } from "../../services/thresholds.service";
+import {
+  BellAlertIcon,
+  ExclamationTriangleIcon,
+  CpuChipIcon,
+} from "@heroicons/react/24/outline";
+import { FireIcon, CloudIcon } from "@heroicons/react/24/solid";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  /** dev_eui o identificador único resoluble en API */
   deviceId: string;
-  /** Nombre legible del sensor (opcional). Si no viene, usamos el deviceId. */
   deviceLabel?: string;
 }
 
-/* =========================
-   Helpers numéricos
-========================= */
+/* Helpers numéricos */
 const toNum = (v: unknown, fb: number) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : fb;
@@ -29,7 +33,7 @@ const toNum = (v: unknown, fb: number) => {
 const clamp = (n: number, min: number, max: number) =>
   Math.min(Math.max(n, min), max);
 
-/* Valores recomendados por defecto */
+/* Valores recomendados */
 const DEFAULTS = {
   tempMin: 10,
   tempMax: 25,
@@ -73,9 +77,6 @@ const AlertThresholdModal: React.FC<Props> = ({
   const displayName = deviceLabel || deviceId || "Sensor sin nombre";
   const displayId = deviceId || "ID no disponible";
 
-  /* =========================
-     Validaciones derivadas
-  ========================== */
   const isValid = useMemo(() => {
     const { tempMin, tempMax, humMin, humMax } = form;
     const tOk =
@@ -89,9 +90,7 @@ const AlertThresholdModal: React.FC<Props> = ({
     return tOk && hOk;
   }, [form]);
 
-  /* =========================
-     Carga de datos al abrir
-  ========================== */
+  /* Carga inicial */
   useEffect(() => {
     if (!isOpen) return;
 
@@ -138,7 +137,7 @@ const AlertThresholdModal: React.FC<Props> = ({
     };
   }, [isOpen, deviceId]);
 
-  /* Reset suave al cerrar */
+  /* Reset al cerrar */
   useEffect(() => {
     if (!isOpen) {
       setError("");
@@ -147,9 +146,6 @@ const AlertThresholdModal: React.FC<Props> = ({
     }
   }, [isOpen]);
 
-  /* =========================
-     Handlers de cambio
-  ========================== */
   const updateFormField = (
     field: keyof ThresholdForm,
     value: number,
@@ -209,9 +205,6 @@ const AlertThresholdModal: React.FC<Props> = ({
       label: "La humedad máxima",
     });
 
-  /* =========================
-     Acciones
-  ========================== */
   const handleResetDefaults = () => {
     setForm({
       tempMin: DEFAULTS.tempMin,
@@ -267,57 +260,76 @@ const AlertThresholdModal: React.FC<Props> = ({
 
   const showGlobalError = !!error && !loading;
 
-  /* =========================
-     Render
-  ========================== */
   return (
     <>
       {ToastContainer}
-      <BaseModal isOpen={isOpen} onClose={onClose}>
-        <ModalHeader title="Umbrales de alerta" onClose={onClose} />
+      <BaseModal
+        isOpen={isOpen}
+        onClose={onClose}
+        className=""
+        closeOnBackdrop={false} // 👈 IMPORTANTE: no cerrar al hacer click afuera
+      >
+        <ModalHeader
+          title="Umbrales de alerta"
+          subtitle="Configura las condiciones que disparan alertas para este sensor."
+          onClose={onClose}
+          icon={<BellAlertIcon className="w-5 h-5" />}
+        />
 
-        {/* Cabecera compacta del dispositivo */}
-        <div className="px-4 pt-1 pb-3 border-b border-slate-100">
-          <p className="text-[11px] uppercase tracking-wide text-slate-500">
-            Dispositivo
-          </p>
-          <p className="text-sm sm:text-base font-medium text-slate-900 truncate">
-            {displayName}
-          </p>
-          <p className="text-[11px] text-slate-400 truncate">
-            ID:{" "}
-            <span className="font-mono text-[11px] text-slate-500">
-              {displayId}
-            </span>
-          </p>
+        {/* Info del dispositivo */}
+        <div className="px-1 pb-3 border-b border-gray-100 mb-3">
+          <div className="flex items-start gap-2">
+            <div className="mt-0.5 rounded-lg bg-gray-100 p-1.5 text-gray-500">
+              <CpuChipIcon className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-wide text-gray-500">
+                Dispositivo
+              </p>
+              <p className="text-sm sm:text-base font-medium text-gray-900 truncate">
+                {displayName}
+              </p>
+              <p className="text-[11px] text-gray-400 truncate">
+                ID:{" "}
+                <span className="font-mono text-[11px] text-gray-500">
+                  {displayId}
+                </span>
+              </p>
+            </div>
+          </div>
         </div>
 
-        {/* Estado carga / error */}
         {loading && (
-          <div className="px-4 py-4 text-sm text-gray-600">
+          <div className="px-1 py-4 text-sm text-gray-600">
             Cargando configuración del dispositivo...
           </div>
         )}
 
         {showGlobalError && !loading && (
-          <div className="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            {error}
+          <div className="mx-1 mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <ExclamationTriangleIcon className="w-4 h-4 mt-0.5" />
+            <p>{error}</p>
           </div>
         )}
 
         {!loading && (
-          <div className="px-4 pb-4 pt-3 space-y-6">
+          <div className="px-1 pb-2 space-y-6">
             {/* Temperatura */}
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-gray-800">
-                  Temperatura (°C)
-                </h3>
+                <div className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-rose-50 text-rose-500">
+                    <FireIcon className="w-3.5 h-3.5" />
+                  </span>
+                  <h3 className="text-sm font-semibold text-gray-800">
+                    Temperatura (°C)
+                  </h3>
+                </div>
                 <button
                   type="button"
                   onClick={handleResetDefaults}
                   disabled={saving}
-                  className="text-[11px] font-medium text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                  className="text-[11px] font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50"
                 >
                   Restaurar valores recomendados
                 </button>
@@ -338,7 +350,7 @@ const AlertThresholdModal: React.FC<Props> = ({
                     className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
                       form.tempMin > form.tempMax
                         ? "border-red-400 focus:ring-red-400"
-                        : "border-slate-300 focus:ring-slate-400"
+                        : "border-gray-300 focus:ring-blue-400"
                     }`}
                   />
                 </div>
@@ -357,7 +369,7 @@ const AlertThresholdModal: React.FC<Props> = ({
                     className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
                       form.tempMax < form.tempMin
                         ? "border-red-400 focus:ring-red-400"
-                        : "border-slate-300 focus:ring-slate-400"
+                        : "border-gray-300 focus:ring-blue-400"
                     }`}
                   />
                 </div>
@@ -366,9 +378,14 @@ const AlertThresholdModal: React.FC<Props> = ({
 
             {/* Humedad */}
             <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-gray-800">
-                Humedad (%RH)
-              </h3>
+              <div className="inline-flex items-center gap-1.5">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-sky-50 text-sky-500">
+                  <CloudIcon className="w-3.5 h-3.5" />
+                </span>
+                <h3 className="text-sm font-semibold text-gray-800">
+                  Humedad (%RH)
+                </h3>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -385,7 +402,7 @@ const AlertThresholdModal: React.FC<Props> = ({
                     className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
                       form.humMin > form.humMax
                         ? "border-red-400 focus:ring-red-400"
-                        : "border-slate-300 focus:ring-slate-400"
+                        : "border-gray-300 focus:ring-blue-400"
                     }`}
                   />
                 </div>
@@ -404,7 +421,7 @@ const AlertThresholdModal: React.FC<Props> = ({
                     className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
                       form.humMax < form.humMin
                         ? "border-red-400 focus:ring-red-400"
-                        : "border-slate-300 focus:ring-slate-400"
+                        : "border-gray-300 focus:ring-blue-400"
                     }`}
                   />
                 </div>
@@ -416,8 +433,9 @@ const AlertThresholdModal: React.FC<Props> = ({
         <ModalFooter
           onCancel={onClose}
           onConfirm={handleSave}
-          confirmDisabled={!isValid || saving || loading || !deviceId}
           isLoading={saving}
+          confirmDisabled={!isValid || saving || loading || !deviceId}
+          confirmLabel="Guardar umbrales"
         />
       </BaseModal>
     </>

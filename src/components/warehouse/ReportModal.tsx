@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unused-vars */
 // src/components/ReportModal.tsx
 
 "use client";
@@ -65,7 +64,7 @@ const ReportModal: React.FC<Props> = ({ rooms, warehouseName, onClose }) => {
 
   const handleDownload = () => {
     const summaryData = rooms.map((room) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const entry: any = { Zona: room.name };
 
       if (options.temperature) entry.Temperatura = room.temperature != null ? `${room.temperature} °C` : "--";

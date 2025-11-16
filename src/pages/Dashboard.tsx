@@ -145,18 +145,27 @@ const Dashboard: React.FC = () => {
   const [selectedDevice, setSelectedDevice] = useState<Room | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
+  // 🔁 Mantener la referencia más reciente de refreshData
+  const refreshRef = useRef(refreshData);
+  useEffect(() => {
+    refreshRef.current = refreshData;
+  }, [refreshData]);
+
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
     try {
-      await refreshData();
+      // forzamos refresh manual ignorando el throttle interno
+      await refreshRef.current?.(true);
     } finally {
       setIsRefreshing(false);
     }
-  }, [isRefreshing, refreshData]);
+  }, [isRefreshing]);
 
+  // Primera carga: si no hay sensores, intenta refrescar
   useEffect(() => {
     if (!sensors.length) void handleRefresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ========= KPIs derivados ========= */

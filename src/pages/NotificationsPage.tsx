@@ -1,3 +1,4 @@
+// src/pages/NotificationsPage.tsx
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import React, {
@@ -12,8 +13,8 @@ import React, {
 import PageContainer from "../components/layout/PageContainer";
 import ResponsiveTable from "../components/ui/ResponsiveTable";
 import NotificationDetailModal from "../components/notifications/NotificationDetailModal";
-import { useNotifications, useSensors, usePendingMap } from "../hooks/useNotifications";
-import type { Notification } from "../utils/notifications";
+import { useNotifications, usePendingMap } from "../hooks/useNotifications";
+import type { UINotification } from "../context/NotificationsContext";
 import { ArrowPathIcon, BellAlertIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { FunnelIcon } from "@heroicons/react/24/solid";
 
@@ -26,8 +27,8 @@ const fmtDate = (iso: string) => {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
 };
 
-const KindBadge: React.FC<{ kind: Notification["kind"] }> = memo(({ kind }) => {
-  const map: Record<Notification["kind"], string> = {
+const KindBadge: React.FC<{ kind: UINotification["kind"] }> = memo(({ kind }) => {
+  const map: Record<UINotification["kind"], string> = {
     critical: "bg-red-50 text-red-700 border-red-200",
     warning: "bg-yellow-50 text-yellow-700 border-yellow-200",
     info: "bg-blue-50 text-blue-700 border-blue-200",
@@ -79,7 +80,7 @@ const hasActiveFilters = ({
 }: {
   search: string;
   sensor: string;
-  kind: "all" | Notification["kind"];
+  kind: "all" | UINotification["kind"];
   read: "all" | "read" | "unread";
 }) => {
   return (
@@ -146,7 +147,6 @@ const SkeletonTable = () => (
   </div>
 );
 
-/** EmptyState mejorado */
 const EmptyState = ({
   onRetry,
   onClearAll,
@@ -200,13 +200,17 @@ const NotificationCard = memo(function NotificationCard({
   onMark,
   onOpen,
   onFilterSensor,
+  sensorLabel,
 }: {
-  row: Notification;
+  row: UINotification;
   isPending: boolean;
   onMark: (id: number) => void;
-  onOpen: (row: Notification) => void;
+  onOpen: (row: UINotification) => void;
   onFilterSensor: (uid: string) => void;
+  sensorLabel?: string;
 }) {
+  const label = sensorLabel || row.sensorLabel || row.sensor_uid || "—";
+
   return (
     <article
       className={`rounded-xl border border-gray-200 bg-white p-4 md:p-5 shadow-sm transition-opacity ${
@@ -221,9 +225,9 @@ const NotificationCard = memo(function NotificationCard({
               <button
                 onClick={() => onFilterSensor(row.sensor_uid!)}
                 className="text-[11px] px-1.5 py-0.5 rounded-full bg-gray-50 text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
-                title={`Filtrar por sensor ${row.sensor_uid}`}
+                title={`Filtrar por sensor ${label}`}
               >
-                Sensor: {row.sensor_uid}
+                Sensor: {label}
               </button>
             )}
             <span className="ml-auto text-[11px] text-gray-500">{row.timeago}</span>
@@ -282,11 +286,18 @@ const NotificationCard = memo(function NotificationCard({
    Página
 ========================= */
 
-const PAGE_SIZE = 60; // cantidad por "página" en render incremental
+const PAGE_SIZE = 60;
 
 const NotificationsPage: React.FC = () => {
-  const { all, loading, markAll, markOne, reload } = useNotifications();
-  const sensorsList = useSensors();
+  const {
+    all,
+    loading,
+    markAll,
+    markOne,
+    reload,
+    sensorOptions,
+    sensorLabelById,
+  } = useNotifications();
   const pendingMap = usePendingMap();
   const isCompact = useCompact();
 
@@ -294,7 +305,7 @@ const NotificationsPage: React.FC = () => {
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [sensor, setSensor] = useState("");
-  const [kind, setKind] = useState<"all" | Notification["kind"]>("all");
+  const [kind, setKind] = useState<"all" | UINotification["kind"]>("all");
   const [read, setRead] = useState<"all" | "read" | "unread">("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -302,28 +313,33 @@ const NotificationsPage: React.FC = () => {
   const filtered = useMemo(() => {
     let base = all;
     const s = deferredSearch.trim().toLowerCase();
+
     if (s) {
-      base = base.filter(
-        (n) =>
-          (n.message || "").toLowerCase().includes(s) ||
-          (n.sensor_uid || "").toLowerCase().includes(s)
-      );
+      base = base.filter((n) => {
+        const msg = (n.message || "").toLowerCase();
+        const uid = (n.sensor_uid || "").toLowerCase();
+        const label = (n.sensorLabel || sensorLabelById[n.sensor_uid || ""] || "").toLowerCase();
+        return msg.includes(s) || uid.includes(s) || label.includes(s);
+      });
     }
+
     if (sensor) base = base.filter((n) => n.sensor_uid === sensor);
     if (kind !== "all") base = base.filter((n) => n.kind === kind);
     if (read === "read") base = base.filter((n) => n.is_read);
     if (read === "unread") base = base.filter((n) => !n.is_read);
-    return [...base].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
-  }, [all, deferredSearch, sensor, kind, read]);
+
+    return [...base].sort(
+      (a, b) => +new Date(b.created_at) - +new Date(a.created_at)
+    );
+  }, [all, deferredSearch, sensor, kind, read, sensorLabelById]);
 
   // Render incremental
   const [page, setPage] = useState(1);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  // Reinicia paginación cuando cambian filtros o tamaño de base
   useEffect(() => setPage(1), [deferredSearch, sensor, kind, read, all.length]);
 
-  // Anti-spam de reloads
+  // Anti-spam reload
   const reloadRef = useRef(reload);
   useEffect(() => {
     reloadRef.current = reload;
@@ -340,7 +356,7 @@ const NotificationsPage: React.FC = () => {
     }
   }, []);
 
-  // IO para “infinite scroll” (no crecer si ya mostramos todo o si está cargando)
+  // Infinite scroll
   useEffect(() => {
     if (!sentinelRef.current) return;
     const el = sentinelRef.current;
@@ -358,24 +374,31 @@ const NotificationsPage: React.FC = () => {
     return () => io.disconnect();
   }, [filtered.length, loading]);
 
-  const visible = useMemo(
-    () => filtered.slice(0, page * PAGE_SIZE),
-    [filtered, page]
+  const visible = useMemo(() => filtered.slice(0, page * PAGE_SIZE), [filtered, page]);
+
+  // Modal detalle
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selected, setSelected] = useState<UINotification | null>(null);
+
+  const handleMarkOne = useCallback(
+    (id: number) => {
+      void markOne(id);
+    },
+    [markOne]
   );
 
-  // Modal de detalle
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [selected, setSelected] = useState<Notification | null>(null);
-
-  const handleMarkOne = useCallback((id: number) => { void markOne(id); }, [markOne]);
-  const handleOpen = useCallback((row: Notification) => {
+  const handleOpen = useCallback((row: UINotification) => {
     setSelected(row);
     setDetailOpen(true);
   }, []);
-  const handleFilterSensor = useCallback((uid: string) => setSensor(uid), []);
+
+  const handleFilterSensor = useCallback((uid: string) => {
+    setSensor(uid);
+  }, []);
+
   const handleMarkAll = useCallback(() => void markAll(), [markAll]);
 
-  // Acciones del header
+  // Acciones header
   const TopActions = (
     <div className="flex items-center gap-2 relative">
       {loading && <div className="absolute inset-0 rounded-lg bg-white/50 backdrop-blur-[1px]" />}
@@ -393,13 +416,13 @@ const NotificationsPage: React.FC = () => {
     </div>
   );
 
-  /** Helpers para reset */
   const clearAllFilters = useCallback(() => {
     setSearch("");
     setSensor("");
     setKind("all");
     setRead("all");
   }, []);
+
   const showAll = useCallback(() => {
     setSensor("");
     setKind("all");
@@ -433,18 +456,26 @@ const NotificationsPage: React.FC = () => {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar texto o UID…"
+              placeholder="Buscar texto, sensor o UID…"
               className="px-3 py-2 border rounded-lg"
             />
-            <select value={sensor} onChange={(e) => setSensor(e.target.value)} className="px-3 py-2 border rounded-lg">
+            <select
+              value={sensor}
+              onChange={(e) => setSensor(e.target.value)}
+              className="px-3 py-2 border rounded-lg"
+            >
               <option value="">Todos los sensores</option>
-              {sensorsList.map((s) => (
-                <option key={s} value={s}>
-                  {s}
+              {sensorOptions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
                 </option>
               ))}
             </select>
-            <select value={kind} onChange={(e) => setKind(e.target.value as any)} className="px-3 py-2 border rounded-lg">
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value as any)}
+              className="px-3 py-2 border rounded-lg"
+            >
               <option value="all">Todos los tipos</option>
               <option value="critical">Crítico</option>
               <option value="warning">Advertencia</option>
@@ -452,7 +483,11 @@ const NotificationsPage: React.FC = () => {
               <option value="success">Éxito</option>
               <option value="other">Otro</option>
             </select>
-            <select value={read} onChange={(e) => setRead(e.target.value as any)} className="px-3 py-2 border rounded-lg">
+            <select
+              value={read}
+              onChange={(e) => setRead(e.target.value as any)}
+              className="px-3 py-2 border rounded-lg"
+            >
               <option value="all">Todas</option>
               <option value="unread">No leídas</option>
               <option value="read">Leídas</option>
@@ -467,18 +502,26 @@ const NotificationsPage: React.FC = () => {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar texto o UID…"
+            placeholder="Buscar texto, sensor o UID…"
             className="px-3 py-2 border rounded-lg"
           />
-          <select value={sensor} onChange={(e) => setSensor(e.target.value)} className="px-3 py-2 border rounded-lg">
+          <select
+            value={sensor}
+            onChange={(e) => setSensor(e.target.value)}
+            className="px-3 py-2 border rounded-lg"
+          >
             <option value="">Todos los sensores</option>
-            {sensorsList.map((s) => (
-              <option key={s} value={s}>
-                {s}
+            {sensorOptions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
               </option>
             ))}
           </select>
-          <select value={kind} onChange={(e) => setKind(e.target.value as any)} className="px-3 py-2 border rounded-lg">
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as any)}
+            className="px-3 py-2 border rounded-lg"
+          >
             <option value="all">Todos los tipos</option>
             <option value="critical">Crítico</option>
             <option value="warning">Advertencia</option>
@@ -486,7 +529,11 @@ const NotificationsPage: React.FC = () => {
             <option value="success">Éxito</option>
             <option value="other">Otro</option>
           </select>
-          <select value={read} onChange={(e) => setRead(e.target.value as any)} className="px-3 py-2 border rounded-lg">
+          <select
+            value={read}
+            onChange={(e) => setRead(e.target.value as any)}
+            className="px-3 py-2 border rounded-lg"
+          >
             <option value="all">Todas</option>
             <option value="unread">No leídas</option>
             <option value="read">Leídas</option>
@@ -497,7 +544,7 @@ const NotificationsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Lista: tarjetas en compacto, tabla en desktop */}
+      {/* Lista */}
       {isCompact ? (
         <div className="space-y-3">
           {loading && (
@@ -519,6 +566,11 @@ const NotificationsPage: React.FC = () => {
 
           {visible.map((row) => {
             const isPending = !!pendingMap[row.id];
+            const label: string | undefined = row.sensor_uid
+              ? sensorLabelById[row.sensor_uid] ??
+                row.sensorLabel ??
+                row.sensor_uid
+              : undefined;
             return (
               <NotificationCard
                 key={row.id}
@@ -527,11 +579,11 @@ const NotificationsPage: React.FC = () => {
                 onMark={handleMarkOne}
                 onOpen={handleOpen}
                 onFilterSensor={handleFilterSensor}
+                sensorLabel={label}
               />
             );
           })}
 
-          {/* Sentinel para “infinite scroll” */}
           <div ref={sentinelRef} className="h-6" />
         </div>
       ) : (
@@ -548,12 +600,14 @@ const NotificationsPage: React.FC = () => {
           ) : (
             <ResponsiveTable
               title="Listado de Notificaciones"
-              data={visible} // solo lo visible
+              data={visible}
               showExport
               onActionClick={(action, row) => {
-                if (action === "details") handleOpen(row as Notification);
-                if (action === "mark") handleMarkOne((row as Notification).id);
-                if (action === "filter_sensor") handleFilterSensor((row as Notification).sensor_uid || "");
+                const n = row as UINotification;
+                if (action === "details") handleOpen(n);
+                if (action === "mark") handleMarkOne(n.id);
+                if (action === "filter_sensor" && n.sensor_uid)
+                  handleFilterSensor(n.sensor_uid);
               }}
               actions={[
                 { label: "Ver detalles", value: "details" },
@@ -565,34 +619,55 @@ const NotificationsPage: React.FC = () => {
                   key: "message",
                   label: "Mensaje",
                   align: "left",
-                  render: (_v, row: Notification) => {
+                  render: (_v, row: UINotification) => {
                     const isPending = !!pendingMap[row.id];
+                    const label =
+                      row.sensor_uid &&
+                      (sensorLabelById[row.sensor_uid] || row.sensorLabel || row.sensor_uid);
                     return (
-                      <div className={`max-w-[520px] transition-opacity ${isPending ? "opacity-60" : ""}`}>
-                        <div className="text-gray-900 font-medium line-clamp-2">{row.message}</div>
-                        <div className="text-xs text-gray-500">Sensor: {row.sensor_uid || "—"}</div>
+                      <div
+                        className={`max-w-[520px] transition-opacity ${
+                          isPending ? "opacity-60" : ""
+                        }`}
+                      >
+                        <div className="text-gray-900 font-medium line-clamp-2">
+                          {row.message}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Sensor: {label || "—"}
+                        </div>
                       </div>
                     );
                   },
                 },
-                { key: "kind", label: "Tipo", align: "left", render: (_v, row: Notification) => <KindBadge kind={row.kind} /> },
+                {
+                  key: "kind",
+                  label: "Tipo",
+                  align: "left",
+                  render: (_v, row: UINotification) => <KindBadge kind={row.kind} />,
+                },
                 { key: "value", label: "Valor", align: "right", render: (v) => v ?? "—" },
                 {
                   key: "thresholds",
                   label: "Umbral (min / max)",
                   align: "right",
-                  render: (_v, row: Notification) => (
+                  render: (_v, row: UINotification) => (
                     <span>
                       {row.threshold_min ?? "—"} / {row.threshold_max ?? "—"}
                     </span>
                   ),
                 },
-                { key: "is_read", label: "Estado", align: "left", render: (_v, row: Notification) => <ReadBadge read={!!row.is_read} /> },
+                {
+                  key: "is_read",
+                  label: "Estado",
+                  align: "left",
+                  render: (_v, row: UINotification) => <ReadBadge read={!!row.is_read} />,
+                },
                 {
                   key: "created_at",
                   label: "Fecha",
                   align: "left",
-                  render: (_v, row: Notification) => (
+                  render: (_v, row: UINotification) => (
                     <div className="whitespace-nowrap">
                       <div className="text-gray-900">{fmtDate(row.created_at)}</div>
                       <div className="text-xs text-gray-500">{row.timeago}</div>
@@ -602,7 +677,6 @@ const NotificationsPage: React.FC = () => {
               ]}
             />
           )}
-          {/* Sentinel también para desktop */}
           <div ref={sentinelRef} className="h-6" />
         </div>
       )}
@@ -619,7 +693,6 @@ const NotificationsPage: React.FC = () => {
         onFilterBySensor={handleFilterSensor}
       />
 
-      {/* Aviso flotante cuando loading */}
       {loading && (
         <div className="fixed bottom-4 right-4 px-3 py-2 rounded-lg bg-white/90 border border-gray-200 shadow-md flex items-center gap-2 backdrop-blur">
           <ArrowPathIcon className="w-4 h-4 animate-spin text-gray-600" />

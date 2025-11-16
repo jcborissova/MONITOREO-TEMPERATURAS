@@ -4,7 +4,16 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import React, { useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
+
+import React, {
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  useDeferredValue,
+} from "react";
 import {
   ResponsiveContainer,
   CartesianGrid,
@@ -27,12 +36,13 @@ import { CloudIcon, FireIcon, ArrowPathIcon } from "@heroicons/react/24/solid";
 
 type Quick = "12h" | "24h" | "72h" | "7d" | "30d" | "all" | "custom";
 
+// 🔻 Menos divisiones = menos puntos = gráfico más liviano
 const PRESET_DIVISIONS: Record<Exclude<Quick, "all" | "custom">, number> = {
-  "12h": 144, // ~5 min
-  "24h": 144, // ~10 min
-  "72h": 288, // ~15 min
-  "7d": 504,
-  "30d": 1440,
+  "12h": 72,   // antes 144
+  "24h": 96,   // antes 144
+  "72h": 144,  // antes 288
+  "7d": 168,   // antes 504
+  "30d": 240,  // antes 1440
 };
 
 type ChartRow = { ts: string; [key: string]: number | string | null };
@@ -150,8 +160,12 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     return base.replace(/,1\)$/, `,${Math.max(0, Math.min(1, alpha))})`);
   };
 
-  // -------- Unificación de timeline --------
+  // -------- Unificación de timeline (pesado, por eso useMemo) --------
   const unified = useMemo(() => {
+    if (!sensorsReady) {
+      return { time: [] as string[], series: {}, minIso: "", maxIso: "", names: [] as string[] };
+    }
+
     const tsSet = new Set<string>();
 
     (sensors ?? []).forEach((s: any) => {
@@ -220,7 +234,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       .filter((n: string | any[]) => n.length > 0);
 
     return { time, series, minIso, maxIso, names };
-  }, [sensors, historyData]);
+  }, [sensorsReady, sensors, historyData]);
 
   // -------- Ventana actual en ms --------
   const windowMs = useMemo(() => {
@@ -257,7 +271,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   const windowEndMs = windowMs[1];
 
   // -------- Helpers para pedir rango (ISO) --------
-  const computeRangeISO = (): { fromISO: string; toISO: string } => {
+  const computeRangeISO = useCallback((): { fromISO: string; toISO: string } => {
     let fromISO: string;
     let toISO: string;
 
@@ -280,7 +294,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       toISO = endOfDayLocal(dateRange.end).toISOString();
     }
     return { fromISO, toISO };
-  };
+  }, [quick, customStart, customEnd, dateRange.start, dateRange.end]);
 
   // -------- Re-muestreo a bins --------
   const [binnedData, setBinnedData] = useState<ChartRow[]>([]);
@@ -289,68 +303,68 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   const [brushKey, setBrushKey] = useState(0);
   const [brushRange, setBrushRange] = useState<{ startIndex?: number; endIndex?: number }>({});
 
-  type Point = { t: number; temp: number | null; hum: number | null };
+  const ensureBoundaryRows = useCallback(
+    (rows: ChartRow[], startMs: number, endMs: number, names: string[]) => {
+      const first = rows[0]?.ts;
+      const last = rows[rows.length - 1]?.ts;
 
-  const ensureBoundaryRows = (
-    rows: ChartRow[],
-    startMs: number,
-    endMs: number,
-    names: string[]
-  ) => {
-    const first = rows[0]?.ts;
-    const last = rows[rows.length - 1]?.ts;
+      const needStart = !first || toSafeDate(first).getTime() !== startMs;
+      const needEnd = !last || toSafeDate(last).getTime() !== endMs;
 
-    const needStart = !first || toSafeDate(first).getTime() !== startMs;
-    const needEnd = !last || toSafeDate(last).getTime() !== endMs;
+      const makeEmptyRow = (ms: number): ChartRow => {
+        const r: ChartRow = { ts: new Date(ms).toISOString() };
+        names.forEach((n) => {
+          r[`${n} °C`] = null;
+          r[`${n} %RH`] = null;
+        });
+        return r;
+      };
 
-    const makeEmptyRow = (ms: number): ChartRow => {
-      const r: ChartRow = { ts: new Date(ms).toISOString() };
-      names.forEach((n) => {
-        r[`${n} °C`] = null;
-        r[`${n} %RH`] = null;
-      });
-      return r;
-    };
+      return [
+        ...(needStart ? [makeEmptyRow(startMs)] : []),
+        ...rows,
+        ...(needEnd ? [makeEmptyRow(endMs)] : []),
+      ];
+    },
+    []
+  );
 
-    return [
-      ...(needStart ? [makeEmptyRow(startMs)] : []),
-      ...rows,
-      ...(needEnd ? [makeEmptyRow(endMs)] : []),
-    ];
-  };
+  const buildBinnedData = useCallback(
+    (startMs: number, endMs: number): { rows: ChartRow[]; startIso: string; endIso: string } => {
+      const names: string[] = unified.names;
+      if (!names.length || !unified.time.length || endMs <= startMs) {
+        return { rows: [], startIso: "", endIso: "" };
+      }
 
-  const buildBinnedData = (
-    startMs: number,
-    endMs: number
-  ): { rows: ChartRow[]; startIso: string; endIso: string } => {
-    const names: string[] = unified.names;
-    const dur = Math.max(1, endMs - startMs);
-    const H = 3600 * 1000;
+      const dur = Math.max(1, endMs - startMs);
+      const H = 3600 * 1000;
 
-    let divisions: number;
-    if (dur <= 12 * H) {
-      divisions = PRESET_DIVISIONS["12h"];
-    } else if (dur <= 24 * H) {
-      divisions = PRESET_DIVISIONS["24h"];
-    } else if (dur <= 72 * H) {
-      divisions = PRESET_DIVISIONS["72h"];
-    } else if (dur <= 7 * 24 * H) {
-      divisions = PRESET_DIVISIONS["7d"];
-    } else {
-      divisions = PRESET_DIVISIONS["30d"];
-    }
+      let divisions: number;
+      if (dur <= 12 * H) {
+        divisions = PRESET_DIVISIONS["12h"];
+      } else if (dur <= 24 * H) {
+        divisions = PRESET_DIVISIONS["24h"];
+      } else if (dur <= 72 * H) {
+        divisions = PRESET_DIVISIONS["72h"];
+      } else if (dur <= 7 * 24 * H) {
+        divisions = PRESET_DIVISIONS["7d"];
+      } else {
+        divisions = PRESET_DIVISIONS["30d"];
+      }
 
-    const step = Math.max(1, Math.floor(dur / Math.max(1, divisions)));
-    const rows: ChartRow[] = [];
+      const step = Math.max(1, Math.floor(dur / Math.max(1, divisions)));
+      const rows: ChartRow[] = [];
 
-    const hasRaw = unified.time.length > 0;
-    const sensorPoints: Record<string, Point[]> = {};
-    names.forEach((name: string) => (sensorPoints[name] = []));
+      const sensorPoints: Record<
+        string,
+        { t: number; temp: number | null; hum: number | null }[]
+      > = {};
+      names.forEach((name: string) => (sensorPoints[name] = []));
 
-    if (hasRaw) {
       const nameList: string[] = Object.keys(unified.series).length
         ? Object.keys(unified.series)
         : names;
+
       unified.time.forEach((iso, idx) => {
         const t = toSafeDate(iso).getTime();
         if (t < startMs || t > endMs) return;
@@ -363,49 +377,51 @@ const MultiSensorTimelineRecharts: React.FC = () => {
           (sensorPoints[name] ??= []).push({ t, temp, hum });
         });
       });
-    }
 
-    for (let t0 = startMs; t0 < endMs; t0 += step) {
-      const bStart = t0;
-      const bEnd = Math.min(endMs, t0 + step);
-      const tsMid = new Date(bStart + (bEnd - bStart) / 2).toISOString();
+      for (let t0 = startMs; t0 < endMs; t0 += step) {
+        const bStart = t0;
+        const bEnd = Math.min(endMs, t0 + step);
+        const tsMid = new Date(bStart + (bEnd - bStart) / 2).toISOString();
 
-      const row: ChartRow = { ts: tsMid };
+        const row: ChartRow = { ts: tsMid };
 
-      names.forEach((name: string) => {
-        if (!hasRaw || !sensorPoints[name]?.length) {
-          row[`${name} °C`] = null;
-          row[`${name} %RH`] = null;
-          return;
-        }
-        let sumT = 0,
-          cntT = 0;
-        let sumH = 0,
-          cntH = 0;
-        for (const p of sensorPoints[name]) {
-          if (p.t >= bStart && p.t < bEnd) {
-            if (typeof p.temp === "number") {
-              sumT += p.temp;
-              cntT++;
-            }
-            if (typeof p.hum === "number") {
-              sumH += p.hum;
-              cntH++;
+        names.forEach((name: string) => {
+          const points = sensorPoints[name];
+          if (!points || !points.length) {
+            row[`${name} °C`] = null;
+            row[`${name} %RH`] = null;
+            return;
+          }
+          let sumT = 0,
+            cntT = 0;
+          let sumH = 0,
+            cntH = 0;
+          for (const p of points) {
+            if (p.t >= bStart && p.t < bEnd) {
+              if (typeof p.temp === "number") {
+                sumT += p.temp;
+                cntT++;
+              }
+              if (typeof p.hum === "number") {
+                sumH += p.hum;
+                cntH++;
+              }
             }
           }
-        }
-        row[`${name} °C`] = cntT ? sumT / cntT : null;
-        row[`${name} %RH`] = cntH ? sumH / cntH : null;
-      });
+          row[`${name} °C`] = cntT ? sumT / cntT : null;
+          row[`${name} %RH`] = cntH ? sumH / cntH : null;
+        });
 
-      rows.push(row);
-    }
+        rows.push(row);
+      }
 
-    const startIso = new Date(startMs).toISOString();
-    const endIso = new Date(endMs).toISOString();
-    const withBounds = ensureBoundaryRows(rows, startMs, endMs, names);
-    return { rows: withBounds, startIso, endIso };
-  };
+      const startIso = new Date(startMs).toISOString();
+      const endIso = new Date(endMs).toISOString();
+      const withBounds = ensureBoundaryRows(rows, startMs, endMs, names);
+      return { rows: withBounds, startIso, endIso };
+    },
+    [unified.names, unified.time, unified.series, ensureBoundaryRows]
+  );
 
   // -------- Pedir histórico --------
   useEffect(() => {
@@ -417,11 +433,15 @@ const MultiSensorTimelineRecharts: React.FC = () => {
       } catch {}
     };
     load();
-  }, [sensorsReady, quick, dateRange.start, dateRange.end, customStart, customEnd, fetchHistoryRange]);
+  }, [sensorsReady, computeRangeISO, fetchHistoryRange]);
 
-  // -------- Recalcular líneas --------
+  // -------- Recalcular líneas (binning pesado) --------
   useEffect(() => {
-    if (!Number.isFinite(windowStartMs) || !Number.isFinite(windowEndMs) || windowEndMs <= windowStartMs) {
+    if (
+      !Number.isFinite(windowStartMs) ||
+      !Number.isFinite(windowEndMs) ||
+      windowEndMs <= windowStartMs
+    ) {
       setBinnedData([]);
       setBrushRange({});
       return;
@@ -433,7 +453,10 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const endIdx = Math.max(0, rows.length - 1);
     setBrushRange({ startIndex: 0, endIndex: endIdx });
     setBrushKey((k) => k + 1);
-  }, [windowStartMs, windowEndMs, unified.time]);
+  }, [windowStartMs, windowEndMs, buildBinnedData]);
+
+  // 🔀 Hacemos el render del gráfico con los datos “diferidos”
+  const deferredBinnedData = useDeferredValue(binnedData);
 
   // -------- Autorefresco cada 10 min si incluye hoy --------
   useEffect(() => {
@@ -446,7 +469,10 @@ const MultiSensorTimelineRecharts: React.FC = () => {
         await refreshData?.();
         const { fromISO, toISO } = computeRangeISO();
         await fetchHistoryRange?.({ from: fromISO, to: toISO, pageSize: 500, maxPages: 50 });
-        const { rows, startIso, endIso } = buildBinnedData(windowStartMs, adjustEndForNow(Date.now()));
+        const { rows, startIso, endIso } = buildBinnedData(
+          windowStartMs,
+          adjustEndForNow(Date.now())
+        );
         setBinnedData(rows);
         setRangeStartIso(startIso);
         setRangeEndIso(endIso);
@@ -458,7 +484,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
     const bucket = 10 * 60 * 1000;
     const id = window.setInterval(tick, bucket);
     return () => window.clearInterval(id);
-  }, [windowStartMs, windowEndMs, refreshData, fetchHistoryRange, quick, dateRange.start, dateRange.end, customStart, customEnd]);
+  }, [windowStartMs, windowEndMs, refreshData, fetchHistoryRange, computeRangeISO, buildBinnedData]);
 
   // -------- UI: acciones de rango --------
   const applyQuick = (k: Quick) => {
@@ -544,7 +570,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   }, [unified.names, showTemp, showHum]);
 
   const resetBrush = () => {
-    const endIdx = Math.max(0, binnedData.length - 1);
+    const endIdx = Math.max(0, deferredBinnedData.length - 1);
     setBrushRange({ startIndex: 0, endIndex: endIdx });
     setBrushKey((k) => k + 1);
     setRangeError("");
@@ -640,12 +666,12 @@ const MultiSensorTimelineRecharts: React.FC = () => {
   }, [unified.time, windowStartMs, windowEndMs]);
 
   const hasNumericBinned = useMemo(() => {
-    if (!binnedData.length || !unified.names.length) return false;
+    if (!deferredBinnedData.length || !unified.names.length) return false;
     const metricKeys = unified.names.flatMap((n) => [`${n} °C`, `${n} %RH`]);
-    return binnedData.some((row) =>
+    return deferredBinnedData.some((row) =>
       metricKeys.some((key) => typeof row[key] === "number")
     );
-  }, [binnedData, unified.names]);
+  }, [deferredBinnedData, unified.names]);
 
   const showNoDataOverlay =
     sensorsReady && !isRangeLoading && (!hasRawInWindow || !hasNumericBinned);
@@ -708,7 +734,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
           ))}
 
           <span className="ml-1 px-2 py-1 rounded-full text-[11px] sm:text-xs bg-indigo-50 text-indigo-700 border border-indigo-100">
-            Puntos: {binnedData.length}
+            Puntos: {deferredBinnedData.length}
           </span>
 
           <span
@@ -844,7 +870,10 @@ const MultiSensorTimelineRecharts: React.FC = () => {
             ].join(" ")}
           >
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={binnedData} margin={{ top: 12, right: 16, left: 8, bottom: 8 }}>
+              <LineChart
+                data={deferredBinnedData}
+                margin={{ top: 12, right: 16, left: 8, bottom: 8 }}
+              >
                 <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
                 <XAxis
                   dataKey="ts"
@@ -986,8 +1015,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                           stroke={c}
                           strokeWidth={2}
                           dot={false}
-                          isAnimationActive
-                          animationDuration={600}
+                          isAnimationActive={false} // 🔥 sin animación = menos lag
                           connectNulls={false}
                         />
                       )}
@@ -1001,8 +1029,7 @@ const MultiSensorTimelineRecharts: React.FC = () => {
                           strokeDasharray="6 4"
                           strokeWidth={1.5}
                           dot={false}
-                          isAnimationActive
-                          animationDuration={600}
+                          isAnimationActive={false} // 🔥
                           connectNulls={false}
                         />
                       )}

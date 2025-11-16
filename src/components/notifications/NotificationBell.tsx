@@ -1,27 +1,30 @@
+// src/components/notifications/NotificationBell.tsx
 /* eslint-disable @typescript-eslint/no-explicit-any */
+"use client";
+
 import React, {
   useEffect,
   useMemo,
   useRef,
   useState,
   useCallback,
-  Fragment,
   useLayoutEffect,
+  Fragment,
 } from "react";
 import { createPortal } from "react-dom";
 import { BellIcon, ArrowPathIcon, XMarkIcon } from "@heroicons/react/24/solid";
 import { useNavigate, useLocation } from "react-router-dom";
 import NotificationDetailModal from "./NotificationDetailModal";
 import { useNotifications, usePendingMap } from "../../hooks/useNotifications";
-import type { Notification } from "../../utils/notifications";
+import type { UINotification } from "../../context/NotificationsContext";
 
 type Kind = "critical" | "warning" | "success" | "info" | string;
 
 const KIND_STYLES: Record<Kind, { dot: string; chip: string }> = {
   critical: { dot: "bg-red-500", chip: "bg-red-50 text-red-700 ring-1 ring-red-200" },
-  warning:  { dot: "bg-yellow-400", chip: "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200" },
-  success:  { dot: "bg-green-500", chip: "bg-green-50 text-green-700 ring-1 ring-green-200" },
-  info:     { dot: "bg-blue-500", chip: "bg-blue-50 text-blue-700 ring-1 ring-blue-200" },
+  warning: { dot: "bg-yellow-400", chip: "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200" },
+  success: { dot: "bg-green-500", chip: "bg-green-50 text-green-700 ring-1 ring-green-200" },
+  info: { dot: "bg-blue-500", chip: "bg-blue-50 text-blue-700 ring-1 ring-blue-200" },
 };
 
 const useIsMobile = (query = "(max-width: 640px)") => {
@@ -59,24 +62,18 @@ function computeDesktopPosition(
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
-  // preferimos alinear el borde derecho del popover con el del botón
   let left = rect.right - popoverWidth;
-  // si se sale por la izquierda, pegamos a 8px
   if (left < 8) left = 8;
-  // si se sale por la derecha, lo empujamos hacia la izquierda
   if (left + popoverWidth > vw - 8) left = Math.max(8, vw - popoverWidth - 8);
 
-  // top por debajo del botón
   let top = rect.bottom + gap;
 
-  // si no hay espacio debajo, lo mostramos encima (flip vertical)
-  const estimatedHeight = Math.min(420 + 48 + 40, vh - 16); // lista + header + footer aprox
+  const estimatedHeight = Math.min(420 + 48 + 40, vh - 16);
   if (top + estimatedHeight > vh - 8) {
     const flippedTop = rect.top - gap - estimatedHeight;
     if (flippedTop >= 8) {
       top = flippedTop;
     } else {
-      // si tampoco cabe arriba, lo pegamos a 8px del borde
       top = Math.min(rect.bottom + gap, vh - estimatedHeight - 8);
     }
   }
@@ -103,7 +100,7 @@ const NotificationBell: React.FC = () => {
 
   const [openPanel, setOpenPanel] = useState(false);
   const [openDetail, setOpenDetail] = useState(false);
-  const [selected, setSelected] = useState<Notification | null>(null);
+  const [selected, setSelected] = useState<UINotification | null>(null);
   const [pendingAll, setPendingAll] = useState(false);
 
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -111,12 +108,10 @@ const NotificationBell: React.FC = () => {
   const firstItemRef = useRef<HTMLButtonElement | null>(null);
   const [activeIndex, setActiveIndex] = useState<number>(-1);
 
-  // Posición desktop del popover
   const [deskPos, setDeskPos] = useState<{ top: number; left: number; width: number } | null>(
     null
   );
 
-  // Lock scroll en móvil cuando panel abierto
   useBodyScrollLock(isMobile && openPanel);
 
   const closePanel = useCallback(() => {
@@ -125,18 +120,16 @@ const NotificationBell: React.FC = () => {
     triggerRef.current?.focus();
   }, []);
 
-  const openItem = (n: Notification) => {
+  const openItem = (n: UINotification) => {
     setSelected(n);
     setOpenDetail(true);
   };
 
-  // Cerrar al navegar/ocultar
   useEffect(() => {
     setOpenPanel(false);
     setOpenDetail(false);
   }, [location.pathname, location.search, location.hash]);
 
-  // Esc/visibility
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -158,7 +151,6 @@ const NotificationBell: React.FC = () => {
     };
   }, [openDetail, openPanel, closePanel]);
 
-  // Primer foco al abrir
   useEffect(() => {
     if (!openPanel) return;
     const t = setTimeout(() => {
@@ -173,7 +165,6 @@ const NotificationBell: React.FC = () => {
     return () => clearTimeout(t);
   }, [openPanel, lastFive.length]);
 
-  // Recalcular posición en desktop
   useLayoutEffect(() => {
     if (!openPanel || isMobile) return;
     const calc = () => {
@@ -201,7 +192,6 @@ const NotificationBell: React.FC = () => {
 
   const handleToggle = () => setOpenPanel((v) => !v);
 
-  // Navegación con ↑/↓/Enter
   const onListKeyDown = (e: React.KeyboardEvent) => {
     if (!lastFive.length) return;
     if (e.key === "ArrowDown") {
@@ -220,17 +210,14 @@ const NotificationBell: React.FC = () => {
     }
   };
 
-  // ===== Panel (Portal) =====
   const Panel = (
     <Fragment>
-      {/* Overlay */}
       <div
         className={`fixed inset-0 z-[60] ${isMobile ? "bg-black/40" : "bg-transparent"}`}
         onClick={closePanel}
         aria-hidden="true"
       />
       {isMobile ? (
-        // Bottom sheet móvil
         <div
           role="dialog"
           aria-modal="true"
@@ -238,7 +225,6 @@ const NotificationBell: React.FC = () => {
           className="fixed inset-x-0 bottom-0 z-[70] max-h-[80vh] rounded-t-2xl bg-white shadow-2xl border-t border-gray-200 overflow-hidden"
           style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 8px)" }}
         >
-          {/* Handle + Header */}
           <div className="relative">
             <div className="flex justify-center py-2">
               <span className="h-1.5 w-12 rounded-full bg-gray-200" />
@@ -249,13 +235,16 @@ const NotificationBell: React.FC = () => {
               className="flex items-center justify-between px-4 py-3 border-b bg-white text-base font-semibold"
             >
               <span>Notificaciones</span>
-              <button onClick={closePanel} aria-label="Cerrar" className="p-2 rounded-md hover:bg-gray-100">
+              <button
+                onClick={closePanel}
+                aria-label="Cerrar"
+                className="p-2 rounded-md hover:bg-gray-100"
+              >
                 <XMarkIcon className="w-5 h-5 text-gray-600" />
               </button>
             </div>
           </div>
 
-          {/* Acciones */}
           <div className="px-4 py-2 flex items-center gap-3 border-b text-sm">
             <button
               onClick={() => {
@@ -270,7 +259,9 @@ const NotificationBell: React.FC = () => {
               onClick={handleMarkAll}
               disabled={pendingAll || loading}
               className={`px-3 py-1.5 rounded-full ${
-                pendingAll ? "bg-gray-100 text-gray-400 cursor-wait" : "bg-blue-600 text-white hover:bg-blue-700"
+                pendingAll
+                  ? "bg-gray-100 text-gray-400 cursor-wait"
+                  : "bg-blue-600 text-white hover:bg-blue-700"
               } inline-flex items-center gap-2`}
             >
               {pendingAll && <ArrowPathIcon className="w-4 h-4 animate-spin" />}
@@ -287,7 +278,6 @@ const NotificationBell: React.FC = () => {
             </button>
           </div>
 
-          {/* Lista */}
           <ul
             ref={listRef}
             className="max-h-[58vh] overflow-y-auto divide-y divide-gray-100 outline-none"
@@ -323,11 +313,14 @@ const NotificationBell: React.FC = () => {
                 const isPending = !!pendingMap[n.id];
                 const kind = (n.kind as Kind) || "info";
                 const styles = KIND_STYLES[kind] ?? KIND_STYLES.info;
+                const label = n.sensorLabel ?? n.sensor_uid ?? "";
 
                 return (
                   <li
                     key={n.id}
-                    className={`px-4 py-4 flex items-start gap-3 hover:bg-gray-50 transition ${isPending ? "opacity-60" : ""}`}
+                    className={`px-4 py-4 flex items-start gap-3 hover:bg-gray-50 transition ${
+                      isPending ? "opacity-60" : ""
+                    }`}
                   >
                     <div className={`w-2 h-2 mt-2 rounded-full flex-shrink-0 ${styles.dot}`} />
                     <div className="flex-1 min-w-0">
@@ -341,15 +334,19 @@ const NotificationBell: React.FC = () => {
                             onClick={() => {
                               setOpenDetail(false);
                               setOpenPanel(false);
-                              navigate(`/notifications?sensor=${encodeURIComponent(n.sensor_uid!)}`);
+                              navigate(
+                                `/notifications?sensor=${encodeURIComponent(n.sensor_uid!)}`
+                              );
                             }}
                             className="text-[11px] px-1.5 py-0.5 rounded-full bg-gray-50 text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
-                            title={`Filtrar por sensor ${n.sensor_uid}`}
+                            title={`Filtrar por sensor ${label}`}
                           >
-                            Sensor: {n.sensor_uid}
+                            Sensor: {label}
                           </button>
                         )}
-                        <span className="ml-auto text-[11px] text-gray-500 shrink-0">{n.timeago}</span>
+                        <span className="ml-auto text-[11px] text-gray-500 shrink-0">
+                          {n.timeago}
+                        </span>
                       </div>
 
                       <p className="mt-1 text-[15px] leading-5 font-medium text-gray-900 line-clamp-2">
@@ -361,7 +358,11 @@ const NotificationBell: React.FC = () => {
                           <button
                             onClick={() => void markOne(n.id)}
                             disabled={isPending}
-                            className={`text-sm ${isPending ? "text-gray-400 cursor-wait" : "text-blue-600 hover:underline"}`}
+                            className={`text-sm ${
+                              isPending
+                                ? "text-gray-400 cursor-wait"
+                                : "text-blue-600 hover:underline"
+                            }`}
                           >
                             Marcar leída
                           </button>
@@ -382,14 +383,12 @@ const NotificationBell: React.FC = () => {
               })}
           </ul>
 
-          {/* Footer */}
           <div className="px-4 py-2 border-t text-xs text-gray-600">
             Total: <strong className="text-gray-900">{all.length}</strong> • Sin leer:{" "}
             <strong className="text-blue-700">{unreadCount}</strong>
           </div>
         </div>
       ) : (
-        // Desktop: popover anclado al botón (fixed + coords + caret)
         <div
           role="menu"
           aria-labelledby="notif-header"
@@ -407,10 +406,9 @@ const NotificationBell: React.FC = () => {
           {(() => {
             if (!triggerRef.current || !deskPos) return null;
             const btnRect = triggerRef.current.getBoundingClientRect();
-            const caretCenter = btnRect.right - 16; // apunta cerca del borde derecho del botón
+            const caretCenter = btnRect.right - 16;
             const popLeft = deskPos.left;
             const x = Math.max(16, Math.min(caretCenter - popLeft, (deskPos.width ?? 384) - 16));
-            // si está por encima del botón (flip vertical), ponemos caret abajo
             const isFlipped = deskPos.top < btnRect.top;
             return (
               <div
@@ -437,8 +435,11 @@ const NotificationBell: React.FC = () => {
             );
           })()}
 
-          {/* Header */}
-          <div id="notif-header" tabIndex={-1} className="flex items-center justify-between px-4 py-3 border-b">
+          <div
+            id="notif-header"
+            tabIndex={-1}
+            className="flex items-center justify-between px-4 py-3 border-b"
+          >
             <div className="text-sm font-semibold text-gray-800">Notificaciones</div>
             <div className="flex items-center gap-3">
               <button
@@ -468,7 +469,6 @@ const NotificationBell: React.FC = () => {
             </div>
           </div>
 
-          {/* Lista */}
           <ul
             ref={listRef}
             className="max-h-[420px] overflow-y-auto divide-y divide-gray-100 outline-none"
@@ -504,11 +504,14 @@ const NotificationBell: React.FC = () => {
                 const isPending = !!pendingMap[n.id];
                 const kind = (n.kind as Kind) || "info";
                 const styles = KIND_STYLES[kind] ?? KIND_STYLES.info;
+                const label = n.sensorLabel ?? n.sensor_uid ?? "";
 
                 return (
                   <li
                     key={n.id}
-                    className={`px-4 py-4 flex items-start gap-3 hover:bg-gray-50 transition ${isPending ? "opacity-60" : ""}`}
+                    className={`px-4 py-4 flex items-start gap-3 hover:bg-gray-50 transition ${
+                      isPending ? "opacity-60" : ""
+                    }`}
                   >
                     <div className={`w-2 h-2 mt-2 rounded-full flex-shrink-0 ${styles.dot}`} />
                     <div className="flex-1 min-w-0">
@@ -522,25 +525,35 @@ const NotificationBell: React.FC = () => {
                             onClick={() => {
                               setOpenDetail(false);
                               setOpenPanel(false);
-                              navigate(`/notifications?sensor=${encodeURIComponent(n.sensor_uid!)}`);
+                              navigate(
+                                `/notifications?sensor=${encodeURIComponent(n.sensor_uid!)}`
+                              );
                             }}
                             className="text-[11px] px-1.5 py-0.5 rounded-full bg-gray-50 text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
-                            title={`Filtrar por sensor ${n.sensor_uid}`}
+                            title={`Filtrar por sensor ${label}`}
                           >
-                            Sensor: {n.sensor_uid}
+                            Sensor: {label}
                           </button>
                         )}
-                        <span className="ml-auto text-[11px] text-gray-500 shrink-0">{n.timeago}</span>
+                        <span className="ml-auto text-[11px] text-gray-500 shrink-0">
+                          {n.timeago}
+                        </span>
                       </div>
 
-                      <p className="mt-1 text-sm font-medium text-gray-900 line-clamp-2">{n.message}</p>
+                      <p className="mt-1 text-sm font-medium text-gray-900 line-clamp-2">
+                        {n.message}
+                      </p>
 
                       <div className="mt-2 flex items-center gap-3">
                         {!n.is_read && (
                           <button
                             onClick={() => void markOne(n.id)}
                             disabled={isPending}
-                            className={`text-xs ${isPending ? "text-gray-400 cursor-wait" : "text-blue-600 hover:underline"}`}
+                            className={`text-xs ${
+                              isPending
+                                ? "text-gray-400 cursor-wait"
+                                : "text-blue-600 hover:underline"
+                            }`}
                           >
                             Marcar leída
                           </button>
@@ -561,7 +574,6 @@ const NotificationBell: React.FC = () => {
               })}
           </ul>
 
-          {/* Footer */}
           <div className="flex items-center justify-between px-4 py-2 border-t bg-white/90 text-xs text-gray-600">
             <span>
               Total: <strong className="text-gray-900">{all.length}</strong> • Sin leer:{" "}
@@ -603,7 +615,6 @@ const NotificationBell: React.FC = () => {
         )}
       </button>
 
-      {/* Portal: evita recortes por overflow/stacking contexts */}
       {openPanel && createPortal(Panel, document.body)}
 
       <NotificationDetailModal

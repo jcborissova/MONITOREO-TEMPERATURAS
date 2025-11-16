@@ -1,58 +1,62 @@
-import { useCallback, useEffect, useMemo } from "react";
-import { useNotificationsStore, selectors } from "../store/notifications.store";
-import { toNotification } from "../utils/notifications";
-import type { Notification } from "../utils/notifications";
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// src/hooks/useNotifications.ts
+/* eslint-disable @typescript-eslint/no-explicit-any */
+"use client";
 
-/** Selector cacheado para sensores (evita bucles por identidad) */
-const sensorsSelector = (() => {
-  let prevItems: ReturnType<typeof selectors.all> | null = null;
-  let prevResult: string[] = [];
-  return (s: Parameters<typeof selectors.all>[0]) => {
-    const items = selectors.all(s);
-    if (items === prevItems) return prevResult;
-    prevItems = items;
-    prevResult = Array.from(new Set(items.map((n) => n.sensor_uid).filter(Boolean))) as string[];
-    return prevResult;
+import { useMemo } from "react";
+import {
+  useNotificationsContext,
+  type NotificationsContextValue,
+} from "../context/NotificationsContext";
+
+/**
+ * Hook principal de notificaciones.
+ * La opción pollMs se ignora (el polling está centralizado en el provider),
+ * pero la dejo en la firma para no romper llamadas existentes.
+ */
+export const useNotifications = (
+  _opts?: { pollMs?: number }
+): Pick<
+  NotificationsContextValue,
+  | "all"
+  | "loading"
+  | "error"
+  | "unreadCount"
+  | "pendingAll"
+  | "pendingMap"
+  | "sensorOptions"
+  | "sensorLabelById"
+  | "markOne"
+  | "markAll"
+  | "reload"
+> => {
+  const ctx = useNotificationsContext();
+  return {
+    all: ctx.all,
+    loading: ctx.loading,
+    error: ctx.error,
+    unreadCount: ctx.unreadCount,
+    pendingAll: ctx.pendingAll,
+    pendingMap: ctx.pendingMap,
+    sensorOptions: ctx.sensorOptions,
+    sensorLabelById: ctx.sensorLabelById,
+    markOne: ctx.markOne,
+    markAll: ctx.markAll,
+    reload: ctx.reload,
   };
-})();
-
-/** Hook principal */
-export const useNotifications = (opts?: { pollMs?: number }) => {
-  const pollMs = opts?.pollMs ?? 20000;
-
-  const items = useNotificationsStore(selectors.all);
-  const loading = useNotificationsStore(selectors.loading);
-  const load = useNotificationsStore((s) => s.load);
-  const markOne = useNotificationsStore((s) => s.markOne);
-  const markAll = useNotificationsStore((s) => s.markAll);
-
-  useEffect(() => { void load(); }, [load]);
-
-  // Poll con visibilidad (sin crear nuevas funciones cada render)
-  useEffect(() => {
-    let t: number | undefined;
-    const tick = async () => {
-      if (document.visibilityState === "visible") await load();
-      t = window.setTimeout(tick, pollMs);
-    };
-    t = window.setTimeout(tick, pollMs);
-    const onVis = () => {}; // listener estable
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      if (t) window.clearTimeout(t);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [load, pollMs]);
-
-  const all: Notification[] = useMemo(() => items.map(toNotification), [items]);
-  const unreadCount = useMemo(() => all.filter((n) => !n.is_read).length, [all]);
-  const reload = useCallback(async () => void load(), [load]);
-
-  return { all, loading, unreadCount, markOne, markAll, reload };
 };
 
-/** Mapa completo de pendingIds (para evitar un hook por celda) */
-export const usePendingMap = () => useNotificationsStore(selectors.pendingIds);
+/** Mapa de pendientes (por id) */
+export const usePendingMap = () => {
+  const ctx = useNotificationsContext();
+  return ctx.pendingMap;
+};
 
-/** Sensores (memoizados) */
-export const useSensors = () => useNotificationsStore(sensorsSelector);
+/**
+ * Compatibilidad: listado de sensor_uids presentes en notificaciones.
+ * (Ahora deriva de ctx.sensorOptions.)
+ */
+export const useSensors = () => {
+  const ctx = useNotificationsContext();
+  return useMemo(() => ctx.sensorOptions.map((s) => s.id), [ctx.sensorOptions]);
+};

@@ -260,30 +260,6 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
     };
   }, [fetchSensors]);
 
-  // Poller persistente
-  useEffect(() => {
-    const w = window as any;
-    const create = () => {
-      const id = window.setInterval(() => {
-        void refreshData(false);
-      }, POLL_MS);
-      w.__weatherPoller = { id, pollMs: POLL_MS, createdAt: Date.now() };
-      void refreshData(true);
-    };
-    if (w.__weatherPoller?.id) {
-      if (w.__weatherPoller.pollMs !== POLL_MS) {
-        try {
-          clearInterval(w.__weatherPoller.id);
-        } catch {}
-        create();
-      } else {
-        void refreshData(false);
-      }
-    } else {
-      create();
-    }
-  }, [POLL_MS, refreshData]);
-
   /** 👉 OPEN WAREHOUSE PLAN como callback reutilizable */
   const openWarehousePlan = useCallback(
     async (name: string) => {
@@ -328,6 +304,52 @@ export const WeatherProvider: React.FC<{ children: ReactNode }> = ({ children })
       window.removeEventListener("open-warehouse-plan", handler as EventListener);
     };
   }, [openWarehousePlan]);
+
+  // 🔁 Mantener refreshData en una ref para el poller
+  const refreshDataRef = useRef(refreshData);
+  useEffect(() => {
+    refreshDataRef.current = refreshData;
+  }, [refreshData]);
+
+  // 👉 Poller persistente (estable, sin loops)
+  useEffect(() => {
+    const w = window as any;
+
+    const create = () => {
+      const id = window.setInterval(() => {
+        void refreshDataRef.current?.(false);
+      }, POLL_MS);
+
+      w.__weatherPoller = { id, pollMs: POLL_MS, createdAt: Date.now() };
+
+      // primer disparo fuerte al montar
+      void refreshDataRef.current?.(true);
+    };
+
+    if (w.__weatherPoller?.id) {
+      if (w.__weatherPoller.pollMs !== POLL_MS) {
+        try {
+          clearInterval(w.__weatherPoller.id);
+        } catch {}
+        create();
+      } else {
+        // ya existe → solo pide refresh suave
+        void refreshDataRef.current?.(false);
+      }
+    } else {
+      create();
+    }
+
+    // cleanup al desmontar
+    return () => {
+      if (w.__weatherPoller?.id) {
+        try {
+          clearInterval(w.__weatherPoller.id);
+        } catch {}
+        w.__weatherPoller = null;
+      }
+    };
+  }, [POLL_MS]);
 
   const value = useMemo<WeatherContextProps>(
     () => ({
