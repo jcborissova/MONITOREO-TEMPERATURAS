@@ -6,7 +6,7 @@ import ModalHeader from "../ui/ModalHeader";
 import ModalFooter from "../ui/ModalFooter";
 import { useToast } from "../../hooks/useToast";
 import {
-  getThresholdByDevEui,     // ← usa el smart
+  getThresholdByDevEui,
   upsertThresholdByDevEui,
 } from "../../services/thresholds.service";
 
@@ -15,6 +15,8 @@ interface Props {
   onClose: () => void;
   /** dev_eui o identificador único resoluble en API */
   deviceId: string;
+  /** Nombre legible del sensor (opcional). Si no viene, usamos el deviceId. */
+  deviceLabel?: string;
 }
 
 /* =========================
@@ -53,6 +55,7 @@ const AlertThresholdModal: React.FC<Props> = ({
   isOpen,
   onClose,
   deviceId,
+  deviceLabel,
 }) => {
   const { showToast, ToastContainer } = useToast();
 
@@ -66,6 +69,9 @@ const AlertThresholdModal: React.FC<Props> = ({
     humMin: DEFAULTS.humMin,
     humMax: DEFAULTS.humMax,
   });
+
+  const displayName = deviceLabel || deviceId || "Sensor sin nombre";
+  const displayId = deviceId || "ID no disponible";
 
   /* =========================
      Validaciones derivadas
@@ -104,7 +110,6 @@ const AlertThresholdModal: React.FC<Props> = ({
         if (cancelled) return;
 
         if (!th) {
-          // No hay configuración previa → defaults
           setForm({
             tempMin: DEFAULTS.tempMin,
             tempMax: DEFAULTS.tempMax,
@@ -115,14 +120,12 @@ const AlertThresholdModal: React.FC<Props> = ({
           setForm(buildFormFromApi(th));
         }
       } catch (e: any) {
-        // Si hay error de API usamos defaults pero sin asustar al usuario
         setForm({
           tempMin: DEFAULTS.tempMin,
           tempMax: DEFAULTS.tempMax,
           humMin: DEFAULTS.humMin,
           humMax: DEFAULTS.humMax,
         });
-        // puedes loguear internamente, aquí solo damos mensaje suave opcional
         setError("");
       } finally {
         if (!cancelled) setLoading(false);
@@ -130,13 +133,12 @@ const AlertThresholdModal: React.FC<Props> = ({
     };
 
     fetchThresholds();
-
     return () => {
       cancelled = true;
     };
   }, [isOpen, deviceId]);
 
-  /* Reset suave al cerrar (opcional pero lo deja "limpio") */
+  /* Reset suave al cerrar */
   useEffect(() => {
     if (!isOpen) {
       setError("");
@@ -208,8 +210,18 @@ const AlertThresholdModal: React.FC<Props> = ({
     });
 
   /* =========================
-     Guardar en API (upsert)
+     Acciones
   ========================== */
+  const handleResetDefaults = () => {
+    setForm({
+      tempMin: DEFAULTS.tempMin,
+      tempMax: DEFAULTS.tempMax,
+      humMin: DEFAULTS.humMin,
+      humMax: DEFAULTS.humMax,
+    });
+    showToast("info", "Se restauraron los valores recomendados.");
+  };
+
   const handleSave = async () => {
     if (!deviceId) {
       showToast("error", "No se reconoce el dispositivo.");
@@ -262,60 +274,58 @@ const AlertThresholdModal: React.FC<Props> = ({
     <>
       {ToastContainer}
       <BaseModal isOpen={isOpen} onClose={onClose}>
-        <ModalHeader
-          title={
-            deviceId
-              ? `Configurar umbrales de alerta — ${deviceId}`
-              : "Configurar umbrales de alerta"
-          }
-          onClose={onClose}
-        />
+        <ModalHeader title="Umbrales de alerta" onClose={onClose} />
+
+        {/* Cabecera compacta del dispositivo */}
+        <div className="px-4 pt-1 pb-3 border-b border-slate-100">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">
+            Dispositivo
+          </p>
+          <p className="text-sm sm:text-base font-medium text-slate-900 truncate">
+            {displayName}
+          </p>
+          <p className="text-[11px] text-slate-400 truncate">
+            ID:{" "}
+            <span className="font-mono text-[11px] text-slate-500">
+              {displayId}
+            </span>
+          </p>
+        </div>
 
         {/* Estado carga / error */}
         {loading && (
-          <div className="p-4 text-sm text-gray-600">
+          <div className="px-4 py-4 text-sm text-gray-600">
             Cargando configuración del dispositivo...
           </div>
         )}
 
-        {showGlobalError && (
-          <div className="mx-4 mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        {showGlobalError && !loading && (
+          <div className="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             {error}
           </div>
         )}
 
         {!loading && (
-          <div className="px-4 pb-4 pt-1 space-y-5">
-            {/* Resumen actual */}
-            <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5 text-xs sm:text-sm text-gray-600 flex flex-wrap gap-2 justify-between">
-              <div>
-                <span className="font-semibold text-gray-800">
-                  Rango de temperatura:
-                </span>{" "}
-                {form.tempMin.toFixed(1)}°C – {form.tempMax.toFixed(1)}°C
-              </div>
-              <div>
-                <span className="font-semibold text-gray-800">
-                  Rango de humedad:
-                </span>{" "}
-                {form.humMin.toFixed(1)}% – {form.humMax.toFixed(1)}%
-              </div>
-            </div>
-
+          <div className="px-4 pb-4 pt-3 space-y-6">
             {/* Temperatura */}
-            <section className="border border-gray-200 rounded-xl p-4 sm:p-5">
-              <div className="flex items-center justify-between gap-2 mb-2.5">
-                <h3 className="font-semibold text-gray-800 text-base sm:text-lg">
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-gray-800">
                   Temperatura (°C)
                 </h3>
-                <span className="text-[11px] sm:text-xs text-gray-500">
-                  Rango recomendado: {DEFAULTS.tempMin}–{DEFAULTS.tempMax}°C
-                </span>
+                <button
+                  type="button"
+                  onClick={handleResetDefaults}
+                  disabled={saving}
+                  className="text-[11px] font-medium text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                >
+                  Restaurar valores recomendados
+                </button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm text-gray-700 mb-1">
+                  <label className="block text-xs text-gray-500 mb-1">
                     Mínima
                   </label>
                   <input
@@ -325,19 +335,16 @@ const AlertThresholdModal: React.FC<Props> = ({
                     max={form.tempMax}
                     disabled={saving}
                     onChange={(e) => handleMinTemp(Number(e.target.value))}
-                    className={`w-full border rounded-lg p-2 sm:p-2.5 text-sm focus:ring-2 outline-none ${
+                    className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
                       form.tempMin > form.tempMax
-                        ? "border-red-500 focus:ring-red-500"
-                        : "border-gray-300 focus:border-blue-500 focus:ring-blue-500/70"
+                        ? "border-red-400 focus:ring-red-400"
+                        : "border-slate-300 focus:ring-slate-400"
                     }`}
                   />
-                  <p className="mt-1 text-xs text-gray-400">
-                    No debe ser mayor que la temperatura máxima.
-                  </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-700 mb-1">
+                  <label className="block text-xs text-gray-500 mb-1">
                     Máxima
                   </label>
                   <input
@@ -347,33 +354,25 @@ const AlertThresholdModal: React.FC<Props> = ({
                     max={100}
                     disabled={saving}
                     onChange={(e) => handleMaxTemp(Number(e.target.value))}
-                    className={`w-full border rounded-lg p-2 sm:p-2.5 text-sm focus:ring-2 outline-none ${
+                    className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
                       form.tempMax < form.tempMin
-                        ? "border-red-500 focus:ring-red-500"
-                        : "border-gray-300 focus:border-blue-500 focus:ring-blue-500/70"
+                        ? "border-red-400 focus:ring-red-400"
+                        : "border-slate-300 focus:ring-slate-400"
                     }`}
                   />
-                  <p className="mt-1 text-xs text-gray-400">
-                    No debe ser menor que la temperatura mínima.
-                  </p>
                 </div>
               </div>
             </section>
 
             {/* Humedad */}
-            <section className="border border-gray-200 rounded-xl p-4 sm:p-5">
-              <div className="flex items-center justify-between gap-2 mb-2.5">
-                <h3 className="font-semibold text-gray-800 text-base sm:text-lg">
-                  Humedad (%RH)
-                </h3>
-                <span className="text-[11px] sm:text-xs text-gray-500">
-                  Rango recomendado: {DEFAULTS.humMin}–{DEFAULTS.humMax}%
-                </span>
-              </div>
+            <section className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-800">
+                Humedad (%RH)
+              </h3>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm text-gray-700 mb-1">
+                  <label className="block text-xs text-gray-500 mb-1">
                     Mínima
                   </label>
                   <input
@@ -383,19 +382,16 @@ const AlertThresholdModal: React.FC<Props> = ({
                     max={form.humMax}
                     disabled={saving}
                     onChange={(e) => handleMinHum(Number(e.target.value))}
-                    className={`w-full border rounded-lg p-2 sm:p-2.5 text-sm focus:ring-2 outline-none ${
+                    className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
                       form.humMin > form.humMax
-                        ? "border-red-500 focus:ring-red-500"
-                        : "border-gray-300 focus:border-blue-500 focus:ring-blue-500/70"
+                        ? "border-red-400 focus:ring-red-400"
+                        : "border-slate-300 focus:ring-slate-400"
                     }`}
                   />
-                  <p className="mt-1 text-xs text-gray-400">
-                    No debe ser mayor que la humedad máxima.
-                  </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm text-gray-700 mb-1">
+                  <label className="block text-xs text-gray-500 mb-1">
                     Máxima
                   </label>
                   <input
@@ -405,15 +401,12 @@ const AlertThresholdModal: React.FC<Props> = ({
                     max={100}
                     disabled={saving}
                     onChange={(e) => handleMaxHum(Number(e.target.value))}
-                    className={`w-full border rounded-lg p-2 sm:p-2.5 text-sm focus:ring-2 outline-none ${
+                    className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
                       form.humMax < form.humMin
-                        ? "border-red-500 focus:ring-red-500"
-                        : "border-gray-300 focus:border-blue-500 focus:ring-blue-500/70"
+                        ? "border-red-400 focus:ring-red-400"
+                        : "border-slate-300 focus:ring-slate-400"
                     }`}
                   />
-                  <p className="mt-1 text-xs text-gray-400">
-                    No debe ser menor que la humedad mínima.
-                  </p>
                 </div>
               </div>
             </section>

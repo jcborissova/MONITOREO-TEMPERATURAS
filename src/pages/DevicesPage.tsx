@@ -332,6 +332,7 @@ const DevicesPage: React.FC = () => {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [configDeviceId, setConfigDeviceId] = useState<string>("");
+  const [configDeviceLabel, setConfigDeviceLabel] = useState<string>("");
 
   // Filtramos zonas generales (si las tienes como sensores "macro")
   const tableData = useMemo(
@@ -393,8 +394,20 @@ const DevicesPage: React.FC = () => {
   };
 
   const handleOpenConfig = (row: Room) => {
-    const id = row.devEUI || row.name || (row as any).deviceName || "";
+    const id =
+      row.devEUI ||
+      row.name ||
+      (row as any).deviceName ||
+      (row as any).id ||
+      "";
+
+    const label =
+      row.name ||
+      (row as any).deviceName ||
+      "Sensor sin nombre";
+
     setConfigDeviceId(String(id));
+    setConfigDeviceLabel(label);
   };
 
   const handleTableAction = (action: string, row: Room) => {
@@ -552,7 +565,11 @@ const DevicesPage: React.FC = () => {
       <AlertThresholdModal
         isOpen={!!configDeviceId}
         deviceId={configDeviceId}
-        onClose={() => setConfigDeviceId("")}
+        deviceLabel={configDeviceLabel}
+        onClose={() => {
+          setConfigDeviceId("");
+          setConfigDeviceLabel("");
+        }}
       />
 
       {showLoading && (
