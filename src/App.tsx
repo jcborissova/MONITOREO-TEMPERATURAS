@@ -11,6 +11,7 @@ import PrivateRoute from "./components/auth/PrivateRoute";
 import { GlobalLoadingProvider } from "./context/GlobalLoadingContext";
 import { useSetupLoadInterceptors } from "./utils/setupLoadInterceptors";
 import CacheBootstrap from "./app/CacheBootstrap";
+import UsersPage from "./pages/UsersPage";
 
 // Lazy pages
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -103,6 +104,14 @@ const App: React.FC = () => {
               element={
                 <Suspense fallback={<RouteFallback />}>
                   <NotificationsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="users"
+              element={
+                <Suspense fallback={<RouteFallback />}>
+                  <UsersPage />
                 </Suspense>
               }
             />

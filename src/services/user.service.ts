@@ -1,58 +1,54 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// ============================================
-// src/services/user.service.ts
-import apiService from './api.service';
-import { API_ENDPOINTS } from '../config/api.config';
-import type { User, CreateUserRequest, UpdateUserRequest } from '../types/api.types';
+import apiService from "./api.service";
+import { API_ENDPOINTS, API_CONFIG } from "../config/api.config";
+import type { User, CreateUserRequest, UpdateUserRequest } from "../types/api.types";
 
-class UserService {
-  async getAllUsers(): Promise<User[]> {
-    try {
-      return await apiService.get<User[]>(API_ENDPOINTS.USERS);
-    } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Error al obtener usuarios');
-    }
+class UsersService {
+  /** Obtener todos los usuarios (GET /users, requiere JWT) */
+  async getAll(): Promise<User[]> {
+    const res = await apiService.get<User[]>(API_ENDPOINTS.USERS, {
+      timeout: API_CONFIG.timeout,
+    });
+    return Array.isArray(res) ? res : [];
   }
 
-  async getUserById(id: number): Promise<User> {
-    try {
-      return await apiService.get<User>(API_ENDPOINTS.USER_BY_ID(id));
-    } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Error al obtener usuario');
-    }
+  /** Obtener usuario por id (GET /users/{id}, requiere JWT) */
+  async getById(id: number | string): Promise<User> {
+    return apiService.get<User>(API_ENDPOINTS.USER_BY_ID(id), {
+      timeout: API_CONFIG.timeout,
+    });
   }
 
-  async createUser(userData: CreateUserRequest): Promise<User> {
-    try {
-      // Crear usuario requiere API Key
-      return await apiService.post<User>(API_ENDPOINTS.USERS, userData, {
-        headers: {
-          'X-API-Key': 'SensorsAPI_Key_2024_Development_Environment_Access',
-        },
-      });
-    } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Error al crear usuario');
-    }
+  /**
+   * Crear usuario (POST /users, requiere API Key)
+   * - La API Key se toma de API_CONFIG.usersApiKey (que viene del .env)
+   */
+  async create(data: CreateUserRequest): Promise<User> {
+    const key = API_CONFIG.usersApiKey;
+
+    return apiService.post<User>(API_ENDPOINTS.USERS, data, {
+      timeout: API_CONFIG.timeout,
+      headers: key
+        ? {
+            "x-api-key": key,
+          }
+        : undefined, // si no hay key, el backend responderá 401/403 y el front muestra mensaje amigable
+    });
   }
 
-  async updateUser(id: number, userData: UpdateUserRequest): Promise<User> {
-    try {
-      return await apiService.patch<User>(
-        API_ENDPOINTS.USER_BY_ID(id),
-        userData
-      );
-    } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Error al actualizar usuario');
-    }
+  /** Actualizar usuario (PATCH /users/{id}, requiere JWT) */
+  async update(id: number | string, data: UpdateUserRequest): Promise<User> {
+    return apiService.patch<User>(API_ENDPOINTS.USER_BY_ID(id), data, {
+      timeout: API_CONFIG.timeout,
+    });
   }
 
-  async deleteUser(id: number): Promise<void> {
-    try {
-      await apiService.delete(API_ENDPOINTS.USER_BY_ID(id));
-    } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Error al eliminar usuario');
-    }
+  /** Eliminar usuario (DELETE /users/{id}, requiere JWT) */
+  async remove(id: number | string): Promise<void> {
+    await apiService.delete(API_ENDPOINTS.USER_BY_ID(id), {
+      timeout: API_CONFIG.timeout,
+    });
   }
 }
 
-export default new UserService();
+export const usersService = new UsersService();

@@ -10,6 +10,7 @@ import {
   DocumentChartBarIcon,
   XMarkIcon,
   BellIcon,
+  UserGroupIcon,
 } from "@heroicons/react/24/solid";
 import AuthService from "../../services/auth.service";
 
@@ -30,6 +31,8 @@ const NAV_ITEMS: Item[] = [
   { to: "/devices",      label: "Dispositivos",   icon: <ComputerDesktopIcon className="w-5 h-5" /> },
   { to: "/report",       label: "Reporte",        icon: <DocumentChartBarIcon className="w-5 h-5" /> },
   { to: "/notifications",label: "Notificaciones", icon: <BellIcon className="w-5 h-5" /> },
+  { to: "/users", label: "Usuarios", icon: <UserGroupIcon className="w-5 h-5" /> },
+
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {

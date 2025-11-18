@@ -4,7 +4,7 @@ import axios, {
   type AxiosRequestConfig,
   type AxiosResponse,
   AxiosError,
-  AxiosHeaders, // 👈 importamos AxiosHeaders
+  AxiosHeaders,
 } from "axios";
 import { API_CONFIG } from "../config/api.config";
 
@@ -31,7 +31,9 @@ async function withRetry<T>(
       if (status && status !== 408 && status < 500) throw e;
 
       // Backoff + jitter
-      const delay = Math.round(baseDelay * Math.pow(1.7, i) + Math.random() * 150);
+      const delay = Math.round(
+        baseDelay * Math.pow(1.7, i) + Math.random() * 150
+      );
       await sleep(delay);
     }
   }
@@ -62,7 +64,10 @@ class ApiService {
             config.headers = new AxiosHeaders(config.headers);
           }
           // Mutar, no reasignar con objeto
-          (config.headers as AxiosHeaders).set("Authorization", `Bearer ${token}`);
+          (config.headers as AxiosHeaders).set(
+            "Authorization",
+            `Bearer ${token}`
+          );
         }
         return config;
       },
@@ -73,7 +78,15 @@ class ApiService {
     this.api.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error?.response?.status === 401) {
+        const status = error?.response?.status;
+        const url: string = error?.config?.url ?? "";
+
+        const isUsersEndpoint =
+          typeof url === "string" && url.includes("/users");
+
+        // 401 real → token inválido (pero dejamos pasar los 401 de /users
+        // para que el front los maneje con mensaje amigable, ej. API Key)
+        if (status === 401 && !isUsersEndpoint) {
           localStorage.removeItem("access_token");
           localStorage.removeItem("user");
           if (!redirecting) {
@@ -81,6 +94,7 @@ class ApiService {
             window.location.href = "/login";
           }
         }
+
         return Promise.reject(error);
       }
     );
@@ -89,7 +103,10 @@ class ApiService {
   private async request<T>(
     method: "get" | "post" | "put" | "patch" | "delete",
     url: string,
-    config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number },
+    config?: AxiosRequestConfig & {
+      "x-retries"?: number;
+      "x-retryDelay"?: number;
+    },
     data?: any
   ): Promise<T> {
     const exec = () =>
@@ -113,19 +130,56 @@ class ApiService {
     return res.data;
   }
 
-  async get<T>(url: string, config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number }): Promise<T> {
+  async get<T>(
+    url: string,
+    config?: AxiosRequestConfig & {
+      "x-retries"?: number;
+      "x-retryDelay"?: number;
+    }
+  ): Promise<T> {
     return this.request<T>("get", url, config);
   }
-  async post<T>(url: string, data?: any, config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number }): Promise<T> {
+
+  async post<T>(
+    url: string,
+    data?: any,
+    config?: AxiosRequestConfig & {
+      "x-retries"?: number;
+      "x-retryDelay"?: number;
+    }
+  ): Promise<T> {
     return this.request<T>("post", url, config, data);
   }
-  async put<T>(url: string, data?: any, config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number }): Promise<T> {
+
+  async put<T>(
+    url: string,
+    data?: any,
+    config?: AxiosRequestConfig & {
+      "x-retries"?: number;
+      "x-retryDelay"?: number;
+    }
+  ): Promise<T> {
     return this.request<T>("put", url, config, data);
   }
-  async patch<T>(url: string, data?: any, config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number }): Promise<T> {
+
+  async patch<T>(
+    url: string,
+    data?: any,
+    config?: AxiosRequestConfig & {
+      "x-retries"?: number;
+      "x-retryDelay"?: number;
+    }
+  ): Promise<T> {
     return this.request<T>("patch", url, config, data);
   }
-  async delete<T>(url: string, config?: AxiosRequestConfig & { "x-retries"?: number; "x-retryDelay"?: number }): Promise<T> {
+
+  async delete<T>(
+    url: string,
+    config?: AxiosRequestConfig & {
+      "x-retries"?: number;
+      "x-retryDelay"?: number;
+    }
+  ): Promise<T> {
     return this.request<T>("delete", url, config);
   }
 }

@@ -27,12 +27,14 @@ export interface CreateUserRequest {
   password: string;
   firstName: string;
   lastName: string;
+  isActive?: boolean;
 }
 
 export interface UpdateUserRequest {
   firstName?: string;
   lastName?: string;
-  email?: string;
+  password?: string;
+  isActive?: boolean;
 }
 
 export interface ApiError {

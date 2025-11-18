@@ -37,8 +37,16 @@ interface ResponsiveTableProps {
   columns: Column[];
   title?: string;
 
+  /** Acciones generales disponibles */
   actions?: ActionOption[];
   onActionClick?: (action: string, row: any) => void;
+
+  /**
+   * Permite filtrar/ajustar las acciones por fila.
+   * Ej: ocultar acciones para el usuario logueado:
+   * rowActionsFilter={(row, actions) => isSelf(row) ? [] : actions}
+   */
+  rowActionsFilter?: (row: any, actions: ActionOption[]) => ActionOption[];
 
   expandableKey?: string;
   expandedRender?: (row: any) => React.ReactNode;
@@ -98,7 +106,10 @@ const cmpSmart = (a: any, b: any) => {
   const bDt = isDateLike(b) ? toMs(b) : NaN;
   if (Number.isFinite(aDt) && Number.isFinite(bDt)) return aDt - bDt;
 
-  return String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true, sensitivity: "base" });
+  return String(a ?? "").localeCompare(String(b ?? ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
 };
 
 /** Skeleton celda */
@@ -115,6 +126,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
   title,
   actions = [],
   onActionClick,
+  rowActionsFilter,
   expandableKey,
   expandedRender,
   emptyMessage = "No hay datos disponibles.",
@@ -145,7 +157,10 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
   // cerrar menú contextual
   useEffect(() => {
     const close = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuAnchor(null);
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuAnchor(null);
+        setMenuRow(null);
+      }
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
@@ -172,7 +187,9 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
     const q = search.trim().toLowerCase();
     if (q) {
       rows = rows.filter((r) =>
-        columns.some((c) => String(r?.[c.key] ?? "").toLowerCase().includes(q))
+        columns.some((c) =>
+          String(r?.[c.key] ?? "").toLowerCase().includes(q)
+        )
       );
     }
     return rows;
@@ -182,11 +199,16 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
   const sortedData = useMemo(() => {
     if (!sortKey) return filteredData;
     const asc = sortAsc ? 1 : -1;
-    return [...filteredData].sort((a, b) => asc * cmpSmart(a?.[sortKey!], b?.[sortKey!]));
+    return [...filteredData].sort(
+      (a, b) => asc * cmpSmart(a?.[sortKey!], b?.[sortKey!])
+    );
   }, [filteredData, sortKey, sortAsc]);
 
   const totalPages = Math.max(1, Math.ceil(sortedData.length / rowsPerPage));
-  const pageData = sortedData.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+  const pageData = sortedData.slice(
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
+  );
 
   // Exportar Excel (solo columnas visibles)
   const handleExport = () => {
@@ -198,7 +220,10 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
     const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, title || "Datos");
-    XLSX.writeFile(wb, `${(title || "export").replace(/\s+/g, "_")}_${Date.now()}.xlsx`);
+    XLSX.writeFile(
+      wb,
+      `${(title || "export").replace(/\s+/g, "_")}_${Date.now()}.xlsx`
+    );
   };
 
   // Menú contextual
@@ -212,9 +237,14 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
     setMenuRow(null);
   };
 
-  const ActionMenu = () =>
-    menuAnchor &&
-    createPortal(
+  const ActionMenu = () => {
+    if (!menuAnchor || !menuRow) return null;
+
+    const rowActions = rowActionsFilter
+      ? rowActionsFilter(menuRow, actions)
+      : actions;
+
+    return createPortal(
       <div
         ref={menuRef}
         className="fixed bg-white border border-gray-200 shadow-2xl rounded-lg z-[99999] text-sm animate-fadeIn"
@@ -224,8 +254,8 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
           width: 200,
         }}
       >
-        {actions.length ? (
-          actions.map((a) => (
+        {rowActions.length ? (
+          rowActions.map((a) => (
             <button
               key={a.value}
               onClick={() => {
@@ -243,6 +273,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
       </div>,
       document.body
     );
+  };
 
   // Empty state SOLO si NO está cargando
   if (!loading && !data?.length)
@@ -311,11 +342,15 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
   );
 
   return (
-    <div className={`bg-white rounded-xl shadow-md border border-gray-100 ${className}`}>
+    <div
+      className={`bg-white rounded-xl shadow-md border border-gray-100 ${className}`}
+    >
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-4 border-b bg-gray-50 rounded-t-xl">
         <div className="flex items-center gap-3">
-          {title && <h3 className="font-semibold text-lg text-gray-800">{title}</h3>}
+          {title && (
+            <h3 className="font-semibold text-lg text-gray-800">{title}</h3>
+          )}
           {loading && <div className="sm:hidden">{headerRightLoadingChip}</div>}
         </div>
 
@@ -348,19 +383,30 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
             </select>
           </div>
 
-          {loading && <div className="hidden sm:block">{headerRightLoadingChip}</div>}
+          {loading && (
+            <div className="hidden sm:block">{headerRightLoadingChip}</div>
+          )}
         </div>
       </div>
 
-      {/* Contenedor de tabla desktop: importante permitir sticky */}
+      {/* Contenedor de tabla desktop */}
       <div className="hidden sm:block overflow-x-auto w-full overflow-y-visible rounded-b-xl">
-        <table className="min-w-full text-sm text-gray-800" {...tableProps}>
+        <table
+          className="min-w-full text-sm text-gray-800"
+          {...tableProps}
+        >
           {/* merge seguro de headerProps */}
           {(() => {
-            const mergedHeaderClass =
-              `bg-gray-100 text-gray-700 font-semibold border-b ${headerProps?.className ?? ""}`;
+            const mergedHeaderClass = `bg-gray-100 text-gray-700 font-semibold border-b ${
+              headerProps?.className ?? ""
+            }`;
             return (
-              <thead {...{ ...headerProps, className: mergedHeaderClass }}>
+              <thead
+                {...{
+                  ...headerProps,
+                  className: mergedHeaderClass,
+                }}
+              >
                 <tr>
                   {expandableKey && (
                     <th className="py-3 px-4 w-8 sticky top-0 bg-gray-100 z-[1]" />
@@ -371,7 +417,9 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
                       onClick={() => {
                         if (loading) return;
                         setSortKey(col.key);
-                        setSortAsc((prev) => (sortKey === col.key ? !prev : true));
+                        setSortAsc((prev) =>
+                          sortKey === col.key ? !prev : true
+                        );
                       }}
                       className={[
                         "py-3 px-4 cursor-pointer select-none whitespace-nowrap sticky top-0 bg-gray-100",
@@ -381,7 +429,8 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
                     >
                       <div className="inline-flex items-center gap-1">
                         {col.label}
-                        {!loading && sortKey === col.key &&
+                        {!loading &&
+                          sortKey === col.key &&
                           (sortAsc ? (
                             <ArrowUpIcon className="w-3 h-3 text-gray-500" />
                           ) : (
@@ -391,7 +440,9 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
                     </th>
                   ))}
                   {!!actions.length && (
-                    <th className="py-3 px-4 text-center sticky top-0 bg-gray-100">Acciones</th>
+                    <th className="py-3 px-4 text-center sticky top-0 bg-gray-100">
+                      Acciones
+                    </th>
                   )}
                 </tr>
               </thead>
@@ -401,63 +452,91 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
           {loading
             ? renderSkeletonDesktop()
             : (
-              <tbody className="divide-y divide-gray-100">
-                {pageData.map((row, i) => {
-                  const idx = (currentPage - 1) * rowsPerPage + i;
-                  const isOpen = !!expanded[idx];
-                  return (
-                    <React.Fragment key={idx}>
-                      <tr className="hover:bg-blue-50 transition-colors">
-                        {expandableKey && (
-                          <td className="py-3 px-4">
-                            <button
-                              className="p-1 rounded hover:bg-gray-100"
-                              onClick={() =>
-                                setExpanded((prev) => ({ ...prev, [idx]: !prev[idx] }))
-                              }
-                              aria-label={isOpen ? "Contraer fila" : "Expandir fila"}
-                            >
-                              {isOpen ? (
-                                <ChevronDownIcon className="w-4 h-4 text-gray-600" />
-                              ) : (
-                                <ChevronRightMiniIcon className="w-4 h-4 text-gray-600" />
-                              )}
-                            </button>
-                          </td>
-                        )}
-                        {columns.map((col) => (
-                          <td key={col.key} className={`py-3 px-4 ${cellAlignClass(col.align)} whitespace-nowrap`}>
-                            {col.render ? col.render(row[col.key], row) : row[col.key] ?? "—"}
-                          </td>
-                        ))}
-                        {!!actions.length && (
-                          <td className="py-3 px-4 text-center">
-                            <button
-                              onClick={(e) => openMenu(row, e.currentTarget as HTMLButtonElement)}
-                              className="p-1 rounded-full hover:bg-gray-100"
-                            >
-                              <EllipsisVerticalIcon className="w-5 h-5 text-gray-600" />
-                            </button>
-                          </td>
-                        )}
-                      </tr>
+            <tbody className="divide-y divide-gray-100">
+              {pageData.map((row, i) => {
+                const idx = (currentPage - 1) * rowsPerPage + i;
+                const isOpen = !!expanded[idx];
 
-                      {expandableKey && expandedRender && isOpen && (
-                        <tr className="bg-white">
-                          <td className="py-3 px-4" colSpan={columns.length + (actions.length ? 2 : 1)}>
-                            {expandedRender(row)}
-                          </td>
-                        </tr>
+                const rowActions = rowActionsFilter
+                  ? rowActionsFilter(row, actions)
+                  : actions;
+
+                return (
+                  <React.Fragment key={idx}>
+                    <tr className="hover:bg-blue-50 transition-colors">
+                      {expandableKey && (
+                        <td className="py-3 px-4">
+                          <button
+                            className="p-1 rounded hover:bg-gray-100"
+                            onClick={() =>
+                              setExpanded((prev) => ({
+                                ...prev,
+                                [idx]: !prev[idx],
+                              }))
+                            }
+                            aria-label={
+                              isOpen ? "Contraer fila" : "Expandir fila"
+                            }
+                          >
+                            {isOpen ? (
+                              <ChevronDownIcon className="w-4 h-4 text-gray-600" />
+                            ) : (
+                              <ChevronRightMiniIcon className="w-4 h-4 text-gray-600" />
+                            )}
+                          </button>
+                        </td>
                       )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            )}
+                      {columns.map((col) => (
+                        <td
+                          key={col.key}
+                          className={`py-3 px-4 ${cellAlignClass(
+                            col.align
+                          )} whitespace-nowrap`}
+                        >
+                          {col.render
+                            ? col.render(row[col.key], row)
+                            : row[col.key] ?? "—"}
+                        </td>
+                      ))}
+                      {!!rowActions.length && (
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            onClick={(e) =>
+                              openMenu(
+                                row,
+                                e.currentTarget as HTMLButtonElement
+                              )
+                            }
+                            className="p-1 rounded-full hover:bg-gray-100"
+                          >
+                            <EllipsisVerticalIcon className="w-5 h-5 text-gray-600" />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+
+                    {expandableKey && expandedRender && isOpen && (
+                      <tr className="bg-white">
+                        <td
+                          className="py-3 px-4"
+                          colSpan={
+                            columns.length +
+                            (rowActions.length ? 2 : 1)
+                          }
+                        >
+                          {expandedRender(row)}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          )}
         </table>
       </div>
 
-      {/* Vista móvil tipo card (con expandible) */}
+      {/* Vista móvil tipo card */}
       {loading ? (
         renderSkeletonMobile()
       ) : (
@@ -465,15 +544,26 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
           {pageData.map((row, i) => {
             const idx = (currentPage - 1) * rowsPerPage + i;
             const isOpen = !!expanded[idx];
+
+            const rowActions = rowActionsFilter
+              ? rowActionsFilter(row, actions)
+              : actions;
+
             return (
-              <div key={idx} className="p-4 hover:bg-blue-50 transition">
+              <div
+                key={idx}
+                className="p-4 hover:bg-blue-50 transition"
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1">
                     {expandableKey ? (
                       <button
                         className="flex items-center gap-2 text-left"
                         onClick={() =>
-                          setExpanded((prev) => ({ ...prev, [idx]: !prev[idx] }))
+                          setExpanded((prev) => ({
+                            ...prev,
+                            [idx]: !prev[idx],
+                          }))
                         }
                       >
                         <span className="font-semibold text-gray-900">
@@ -486,13 +576,17 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
                         )}
                       </button>
                     ) : (
-                      <span className="font-semibold text-gray-900">{title ?? "Fila"}</span>
+                      <span className="font-semibold text-gray-900">
+                        {title ?? "Fila"}
+                      </span>
                     )}
                   </div>
 
-                  {!!actions.length && (
+                  {!!rowActions.length && (
                     <button
-                      onClick={(e) => openMenu(row, e.currentTarget as HTMLButtonElement)}
+                      onClick={(e) =>
+                        openMenu(row, e.currentTarget as HTMLButtonElement)
+                      }
                       className="p-1 rounded-full hover:bg-gray-100"
                     >
                       <EllipsisVerticalIcon className="w-5 h-5 text-gray-600" />
@@ -502,10 +596,15 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
 
                 <div className="mt-2 space-y-1.5">
                   {columns.map((col) => (
-                    <div key={col.key} className="flex justify-between text-sm">
+                    <div
+                      key={col.key}
+                      className="flex justify-between text-sm"
+                    >
                       <span className="text-gray-500">{col.label}</span>
                       <span className="text-gray-800 font-medium text-right">
-                        {col.render ? col.render(row[col.key], row) : row[col.key] ?? "—"}
+                        {col.render
+                          ? col.render(row[col.key], row)
+                          : row[col.key] ?? "—"}
                       </span>
                     </div>
                   ))}
@@ -530,7 +629,9 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
               onClick={handleExport}
               disabled={loading}
               className={`flex items-center gap-2 text-sm px-4 py-2 rounded-lg shadow-sm ${
-                loading ? "bg-gray-200 text-gray-500 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 text-white"
+                loading
+                  ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700 text-white"
               }`}
             >
               <ArrowDownTrayIcon className="w-4 h-4" />
@@ -573,7 +674,9 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
               <ChevronLeftIcon className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              onClick={() =>
+                setCurrentPage((p) => Math.min(totalPages, p + 1))
+              }
               disabled={loading || currentPage === totalPages}
               className={`px-3 py-1 rounded-lg border ${
                 loading || currentPage === totalPages
