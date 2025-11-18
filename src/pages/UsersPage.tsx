@@ -15,6 +15,8 @@ import {
   PlusIcon,
   ArrowPathIcon,
   NoSymbolIcon,
+  EyeIcon,
+  EyeSlashIcon,
 } from "@heroicons/react/24/outline";
 import BaseModal from "../components/ui/BaseModal";
 import ModalHeader from "../components/ui/ModalHeader";
@@ -116,6 +118,8 @@ const UsersPage: React.FC = () => {
     isActive: true,
   });
 
+  const [showPassword, setShowPassword] = useState(false);
+
   /* ====== Cargar usuario actual ====== */
   useEffect(() => {
     try {
@@ -131,7 +135,6 @@ const UsersPage: React.FC = () => {
 
     const currentId =
       (currentUser as any).id ?? (currentUser as any).userId ?? null;
-
     const rowId = (row as any).id ?? (row as any).userId ?? null;
 
     const sameId =
@@ -214,6 +217,7 @@ const UsersPage: React.FC = () => {
       lastName: "",
       isActive: true,
     });
+    setShowPassword(false);
     setIsFormOpen(true);
   };
 
@@ -232,6 +236,7 @@ const UsersPage: React.FC = () => {
       lastName: user.lastName,
       isActive: user.isActive,
     });
+    setShowPassword(false);
     setIsFormOpen(true);
   };
 
@@ -260,8 +265,8 @@ const UsersPage: React.FC = () => {
       if (form.id) {
         // ===== Update =====
         const payload: UpdateUserRequest = {
-          firstName: form.firstName,
-          lastName: form.lastName,
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
           isActive: form.isActive,
         };
         if (form.password.trim()) payload.password = form.password;
@@ -277,9 +282,10 @@ const UsersPage: React.FC = () => {
         );
       } else {
         // ===== Create =====
+        const emailNormalized = form.email.trim().toLowerCase();
+
         const exists = users.some(
-          (u) =>
-            u.email.trim().toLowerCase() === form.email.trim().toLowerCase()
+          (u) => u.email.trim().toLowerCase() === emailNormalized
         );
 
         if (exists) {
@@ -291,10 +297,10 @@ const UsersPage: React.FC = () => {
         }
 
         const payload: CreateUserRequest = {
-          email: form.email,
+          email: emailNormalized,
           password: form.password,
-          firstName: form.firstName,
-          lastName: form.lastName,
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
           isActive: form.isActive,
         };
 
@@ -466,9 +472,7 @@ const UsersPage: React.FC = () => {
               : []
           }
           // ✅ Ocultar acciones para el usuario logueado
-          rowActionsFilter={(row, actions) =>
-            isSelf(row) ? [] : actions
-          }
+          rowActionsFilter={(row, actions) => (isSelf(row) ? [] : actions)}
           onActionClick={handleTableAction}
           columns={[
             {
@@ -590,14 +594,28 @@ const UsersPage: React.FC = () => {
             <label className="block text-xs font-medium text-gray-700 mb-1">
               Password{form.id ? " (dejar vacío para no cambiar)" : ""}
             </label>
-            <input
-              type="password"
-              name="password"
-              value={form.password}
-              onChange={handleChange}
-              className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required={!form.id}
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                name="password"
+                value={form.password}
+                onChange={handleChange}
+                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required={!form.id}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="absolute inset-y-0 right-0 px-2 flex items-center text-gray-500 hover:text-gray-700"
+                aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+              >
+                {showPassword ? (
+                  <EyeSlashIcon className="w-4 h-4" />
+                ) : (
+                  <EyeIcon className="w-4 h-4" />
+                )}
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 pt-1">
