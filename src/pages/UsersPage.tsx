@@ -1,7 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+} from "react";
 import PageContainer from "../components/layout/PageContainer";
 import ResponsiveTable from "../components/ui/ResponsiveTable";
 import { usersService } from "../services/user.service";
@@ -94,6 +99,8 @@ interface UserFormState {
   isActive: boolean;
 }
 
+type FormErrors = Partial<Record<keyof UserFormState, string>>;
+
 /* =========================
    Componente principal
 ========================= */
@@ -104,7 +111,12 @@ const UsersPage: React.FC = () => {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // error general (API, permisos, etc.)
   const [error, setError] = useState<string | null>(null);
+
+  // errores por campo (solo del modal)
+  const [fieldErrors, setFieldErrors] = useState<FormErrors>({});
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -201,15 +213,56 @@ const UsersPage: React.FC = () => {
     });
   }, [users, currentUser]);
 
-  /* ====== Handlers formulario ====== */
+  /* =========================
+     Validación formulario
+  ========================== */
 
-  const openCreate = () => {
-    if (!isAdmin) {
-      setError("Solo el usuario admin@admin.com puede crear nuevos usuarios.");
-      return;
+  const validateForm = (): boolean => {
+    const errors: FormErrors = {};
+
+    const firstName = form.firstName.trim();
+    const lastName = form.lastName.trim();
+    const email = form.email.trim();
+    const password = form.password;
+
+    if (!firstName) {
+      errors.firstName = "El nombre es obligatorio.";
+    } else if (firstName.length < 2) {
+      errors.firstName = "El nombre debe tener al menos 2 caracteres.";
     }
 
-    setSelectedUser(null);
+    if (!lastName) {
+      errors.lastName = "El apellido es obligatorio.";
+    } else if (lastName.length < 2) {
+      errors.lastName = "El apellido debe tener al menos 2 caracteres.";
+    }
+
+    // En edición el email está deshabilitado, pero igual validamos el valor almacenado
+    if (!email) {
+      errors.email = "El email es obligatorio.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.email = "Ingresa un correo electrónico válido.";
+    }
+
+    if (!form.id) {
+      // Crear usuario → password obligatorio
+      if (!password.trim()) {
+        errors.password = "La contraseña es obligatoria.";
+      } else if (password.length < 6) {
+        errors.password = "La contraseña debe tener al menos 6 caracteres.";
+      }
+    } else if (password.trim() && password.length < 6) {
+      // Editar → solo validar si se cambia
+      errors.password = "La nueva contraseña debe tener al menos 6 caracteres.";
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  /* ====== Handlers formulario ====== */
+
+  const resetFormState = () => {
     setForm({
       email: "",
       password: "",
@@ -217,7 +270,18 @@ const UsersPage: React.FC = () => {
       lastName: "",
       isActive: true,
     });
+    setFieldErrors({});
     setShowPassword(false);
+    setSelectedUser(null);
+  };
+
+  const openCreate = () => {
+    if (!isAdmin) {
+      setError("Solo el usuario admin@admin.com puede crear nuevos usuarios.");
+      return;
+    }
+
+    resetFormState();
     setIsFormOpen(true);
   };
 
@@ -236,6 +300,7 @@ const UsersPage: React.FC = () => {
       lastName: user.lastName,
       isActive: user.isActive,
     });
+    setFieldErrors({});
     setShowPassword(false);
     setIsFormOpen(true);
   };
@@ -243,14 +308,23 @@ const UsersPage: React.FC = () => {
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
-    const target = e.target;
+    const target = e.target as HTMLInputElement;
+    const { name, type } = target;
+    const value =
+      type === "checkbox" ? (target as HTMLInputElement).checked : target.value;
+
     setForm((prev) => ({
       ...prev,
-      [target.name]:
-        target instanceof HTMLInputElement && target.type === "checkbox"
-          ? target.checked
-          : target.value,
+      [name]: value,
     }));
+
+    // limpiar error del campo al escribir
+    if (fieldErrors[name as keyof UserFormState]) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        [name]: undefined,
+      }));
+    }
   };
 
   /**
@@ -258,6 +332,11 @@ const UsersPage: React.FC = () => {
    */
   const saveUser = async () => {
     if (saving) return;
+
+    // Validación antes de tocar la API
+    const isValid = validateForm();
+    if (!isValid) return;
+
     setSaving(true);
     setError(null);
 
@@ -308,8 +387,10 @@ const UsersPage: React.FC = () => {
         await loadUsers(); // recargar lista desde backend
       }
       setIsFormOpen(false);
+      resetFormState();
     } catch (e: any) {
       console.error(e);
+      // error general amigable
       setError(
         "No pudimos guardar el usuario en este momento. " +
           "Verifica los datos e intenta de nuevo. Si el problema continúa, contacta al administrador."
@@ -531,7 +612,10 @@ const UsersPage: React.FC = () => {
       <BaseModal
         isOpen={isFormOpen}
         onClose={() => {
-          if (!saving) setIsFormOpen(false);
+          if (!saving) {
+            setIsFormOpen(false);
+            resetFormState();
+          }
         }}
         closeOnBackdrop={false}
       >
@@ -543,11 +627,19 @@ const UsersPage: React.FC = () => {
               : "Crea una nueva cuenta de acceso al sistema."
           }
           onClose={() => {
-            if (!saving) setIsFormOpen(false);
+            if (!saving) {
+              setIsFormOpen(false);
+              resetFormState();
+            }
           }}
         />
 
-        <form onSubmit={handleSubmit} className="px-1 pb-2 space-y-4">
+        <form
+          onSubmit={handleSubmit}
+          className="px-1 pb-2 space-y-4"
+          // 🚫 Evitar autofill agresivo del navegador
+          autoComplete="off"
+        >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -557,9 +649,17 @@ const UsersPage: React.FC = () => {
                 name="firstName"
                 value={form.firstName}
                 onChange={handleChange}
-                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`w-full rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 ${
+                  fieldErrors.firstName
+                    ? "border-red-400 focus:ring-red-500"
+                    : "border-gray-300 focus:ring-blue-500"
+                }`}
                 required
+                autoComplete="off"
               />
+              <p className="min-h-[14px] mt-1 text-[11px] text-red-600">
+                {fieldErrors.firstName ?? ""}
+              </p>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -569,9 +669,17 @@ const UsersPage: React.FC = () => {
                 name="lastName"
                 value={form.lastName}
                 onChange={handleChange}
-                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`w-full rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 ${
+                  fieldErrors.lastName
+                    ? "border-red-400 focus:ring-red-500"
+                    : "border-gray-300 focus:ring-blue-500"
+                }`}
                 required
+                autoComplete="off"
               />
+              <p className="min-h-[14px] mt-1 text-[11px] text-red-600">
+                {fieldErrors.lastName ?? ""}
+              </p>
             </div>
           </div>
 
@@ -584,10 +692,19 @@ const UsersPage: React.FC = () => {
               name="email"
               value={form.email}
               onChange={handleChange}
-              className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`w-full rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 ${
+                fieldErrors.email
+                  ? "border-red-400 focus:ring-red-500"
+                  : "border-gray-300 focus:ring-blue-500"
+              }`}
               required
               disabled={!!form.id}
+              // Truco para evitar que el navegador meta el email de login
+              autoComplete={form.id ? "off" : "new-email"}
             />
+            <p className="min-h-[14px] mt-1 text-[11px] text-red-600">
+              {fieldErrors.email ?? ""}
+            </p>
           </div>
 
           <div>
@@ -600,14 +717,21 @@ const UsersPage: React.FC = () => {
                 name="password"
                 value={form.password}
                 onChange={handleChange}
-                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={`w-full rounded-lg border px-2 py-1.5 pr-9 text-sm focus:outline-none focus:ring-2 ${
+                  fieldErrors.password
+                    ? "border-red-400 focus:ring-red-500"
+                    : "border-gray-300 focus:ring-blue-500"
+                }`}
                 required={!form.id}
+                autoComplete="new-password"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
                 className="absolute inset-y-0 right-0 px-2 flex items-center text-gray-500 hover:text-gray-700"
-                aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                aria-label={
+                  showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
+                }
               >
                 {showPassword ? (
                   <EyeSlashIcon className="w-4 h-4" />
@@ -616,6 +740,9 @@ const UsersPage: React.FC = () => {
                 )}
               </button>
             </div>
+            <p className="min-h-[14px] mt-1 text-[11px] text-red-600">
+              {fieldErrors.password ?? ""}
+            </p>
           </div>
 
           <div className="flex items-center gap-2 pt-1">
@@ -638,7 +765,10 @@ const UsersPage: React.FC = () => {
 
         <ModalFooter
           onCancel={() => {
-            if (!saving) setIsFormOpen(false);
+            if (!saving) {
+              setIsFormOpen(false);
+              resetFormState();
+            }
           }}
           onConfirm={() => {
             if (!saving) void saveUser();
