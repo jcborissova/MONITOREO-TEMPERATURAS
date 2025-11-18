@@ -25,11 +25,12 @@ interface Props {
   deviceLabel?: string;
 }
 
-/* Helpers numéricos */
+/* Helpers numéricos básicos */
 const toNum = (v: unknown, fb: number) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : fb;
 };
+
 const clamp = (n: number, min: number, max: number) =>
   Math.min(Math.max(n, min), max);
 
@@ -41,18 +42,36 @@ const DEFAULTS = {
   humMax: 70,
 };
 
+/* Regex: máx 3 enteros y 3 decimales */
+const TEMP_REGEX = /^-?\d{0,3}(?:\.\d{0,3})?$/; // permite negativos
+const HUM_REGEX = /^\d{0,3}(?:\.\d{0,3})?$/; // solo positivos
+
 type ThresholdForm = {
-  tempMin: number;
-  tempMax: number;
-  humMin: number;
-  humMax: number;
+  tempMin: string;
+  tempMax: string;
+  humMin: string;
+  humMax: string;
+};
+
+type ThresholdErrors = {
+  tempMin: string;
+  tempMax: string;
+  humMin: string;
+  humMax: string;
+};
+
+const EMPTY_ERRORS: ThresholdErrors = {
+  tempMin: "",
+  tempMax: "",
+  humMin: "",
+  humMax: "",
 };
 
 const buildFormFromApi = (th: any | null | undefined): ThresholdForm => ({
-  tempMin: toNum(th?.temperature_min, DEFAULTS.tempMin),
-  tempMax: toNum(th?.temperature_max, DEFAULTS.tempMax),
-  humMin: toNum(th?.humidity_min, DEFAULTS.humMin),
-  humMax: toNum(th?.humidity_max, DEFAULTS.humMax),
+  tempMin: String(toNum(th?.temperature_min, DEFAULTS.tempMin)),
+  tempMax: String(toNum(th?.temperature_max, DEFAULTS.tempMax)),
+  humMin: String(toNum(th?.humidity_min, DEFAULTS.humMin)),
+  humMax: String(toNum(th?.humidity_max, DEFAULTS.humMax)),
 });
 
 const AlertThresholdModal: React.FC<Props> = ({
@@ -68,27 +87,132 @@ const AlertThresholdModal: React.FC<Props> = ({
   const [error, setError] = useState<string>("");
 
   const [form, setForm] = useState<ThresholdForm>({
-    tempMin: DEFAULTS.tempMin,
-    tempMax: DEFAULTS.tempMax,
-    humMin: DEFAULTS.humMin,
-    humMax: DEFAULTS.humMax,
+    tempMin: String(DEFAULTS.tempMin),
+    tempMax: String(DEFAULTS.tempMax),
+    humMin: String(DEFAULTS.humMin),
+    humMax: String(DEFAULTS.humMax),
   });
+
+  const [fieldErrors, setFieldErrors] = useState<ThresholdErrors>(EMPTY_ERRORS);
 
   const displayName = deviceLabel || deviceId || "Sensor sin nombre";
   const displayId = deviceId || "ID no disponible";
 
+  /* Validación general para deshabilitar Guardar */
   const isValid = useMemo(() => {
-    const { tempMin, tempMax, humMin, humMax } = form;
+    // Errores por campo
+    if (Object.values(fieldErrors).some((e) => e)) return false;
+    // Campos vacíos
+    if (Object.values(form).some((v) => v === "")) return false;
+
+    const tempMin = Number(form.tempMin);
+    const tempMax = Number(form.tempMax);
+    const humMin = Number(form.humMin);
+    const humMax = Number(form.humMax);
+
+    if (
+      !Number.isFinite(tempMin) ||
+      !Number.isFinite(tempMax) ||
+      !Number.isFinite(humMin) ||
+      !Number.isFinite(humMax)
+    ) {
+      return false;
+    }
+
     const tOk =
       tempMin <= tempMax &&
       tempMin >= -50 &&
       tempMax <= 100;
+
     const hOk =
       humMin <= humMax &&
       humMin >= 0 &&
       humMax <= 100;
+
     return tOk && hOk;
-  }, [form]);
+  }, [form, fieldErrors]);
+
+  /* Validación por campo */
+  const validateField = (
+    name: keyof ThresholdForm,
+    value: string,
+    current: ThresholdForm
+  ): string => {
+    if (value === "") return "Este campo es requerido.";
+
+    const isHumidity = name === "humMin" || name === "humMax";
+    const regex = isHumidity ? HUM_REGEX : TEMP_REGEX;
+
+    if (!regex.test(value)) {
+      return "Formato inválido (máx 3 enteros y 3 decimales).";
+    }
+
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "Valor no numérico.";
+
+    if (!isHumidity) {
+      // Temperatura
+      if (n < -50 || n > 100) {
+        return "Debe estar entre -50 y 100.";
+      }
+      if (name === "tempMin" && current.tempMax && n > Number(current.tempMax)) {
+        return "No puede ser mayor que la máxima.";
+      }
+      if (name === "tempMax" && current.tempMin && n < Number(current.tempMin)) {
+        return "No puede ser menor que la mínima.";
+      }
+    } else {
+      // Humedad
+      if (n < 0 || n > 100) {
+        return "Debe estar entre 0 y 100.";
+      }
+      if (name === "humMin" && current.humMax && n > Number(current.humMax)) {
+        return "No puede ser mayor que la máxima.";
+      }
+      if (name === "humMax" && current.humMin && n < Number(current.humMin)) {
+        return "No puede ser menor que la mínima.";
+      }
+    }
+
+    return "";
+  };
+
+  /* Cambio simple de campo, aplicando regex de 3 enteros + 3 decimales */
+  const handleFieldChange = (name: keyof ThresholdForm, raw: string) => {
+    const value = raw.replace(",", ".");
+    const isHumidity = name === "humMin" || name === "humMax";
+    const regex = isHumidity ? HUM_REGEX : TEMP_REGEX;
+
+    // Permitir vacío para que el usuario pueda borrar
+    if (value !== "" && !regex.test(value)) {
+      // No actualizamos el valor si rompe el formato básico
+      return;
+    }
+
+    const nextForm: ThresholdForm = { ...form, [name]: value };
+
+    setForm(nextForm);
+
+    // Validamos todos para mantener coherencia entre min/max
+    setFieldErrors({
+      tempMin: validateField("tempMin", nextForm.tempMin, nextForm),
+      tempMax: validateField("tempMax", nextForm.tempMax, nextForm),
+      humMin: validateField("humMin", nextForm.humMin, nextForm),
+      humMax: validateField("humMax", nextForm.humMax, nextForm),
+    });
+  };
+
+  const handleResetDefaults = () => {
+    const resetForm: ThresholdForm = {
+      tempMin: String(DEFAULTS.tempMin),
+      tempMax: String(DEFAULTS.tempMax),
+      humMin: String(DEFAULTS.humMin),
+      humMax: String(DEFAULTS.humMax),
+    };
+    setForm(resetForm);
+    setFieldErrors(EMPTY_ERRORS);
+    showToast("info", "Se restauraron los valores recomendados.");
+  };
 
   /* Carga inicial */
   useEffect(() => {
@@ -108,23 +232,25 @@ const AlertThresholdModal: React.FC<Props> = ({
         const th = await getThresholdByDevEui(deviceId);
         if (cancelled) return;
 
-        if (!th) {
-          setForm({
-            tempMin: DEFAULTS.tempMin,
-            tempMax: DEFAULTS.tempMax,
-            humMin: DEFAULTS.humMin,
-            humMax: DEFAULTS.humMax,
-          });
-        } else {
-          setForm(buildFormFromApi(th));
-        }
+        const loadedForm = th
+          ? buildFormFromApi(th)
+          : {
+              tempMin: String(DEFAULTS.tempMin),
+              tempMax: String(DEFAULTS.tempMax),
+              humMin: String(DEFAULTS.humMin),
+              humMax: String(DEFAULTS.humMax),
+            };
+
+        setForm(loadedForm);
+        setFieldErrors(EMPTY_ERRORS);
       } catch (e: any) {
         setForm({
-          tempMin: DEFAULTS.tempMin,
-          tempMax: DEFAULTS.tempMax,
-          humMin: DEFAULTS.humMin,
-          humMax: DEFAULTS.humMax,
+          tempMin: String(DEFAULTS.tempMin),
+          tempMax: String(DEFAULTS.tempMax),
+          humMin: String(DEFAULTS.humMin),
+          humMax: String(DEFAULTS.humMax),
         });
+        setFieldErrors(EMPTY_ERRORS);
         setError("");
       } finally {
         if (!cancelled) setLoading(false);
@@ -143,77 +269,9 @@ const AlertThresholdModal: React.FC<Props> = ({
       setError("");
       setLoading(false);
       setSaving(false);
+      setFieldErrors(EMPTY_ERRORS);
     }
   }, [isOpen]);
-
-  const updateFormField = (
-    field: keyof ThresholdForm,
-    value: number,
-    opts?: { against?: keyof ThresholdForm; type?: "min" | "max"; label?: string }
-  ) => {
-    setForm((prev) => {
-      const next: ThresholdForm = { ...prev, [field]: value };
-
-      if (opts?.against && opts.type) {
-        const other = prev[opts.against];
-
-        if (opts.type === "min" && value > other) {
-          showToast(
-            "error",
-            `${opts.label ?? "El valor mínimo"} no puede ser mayor que el máximo.`
-          );
-          return prev;
-        }
-        if (opts.type === "max" && value < other) {
-          showToast(
-            "error",
-            `${opts.label ?? "El valor máximo"} no puede ser menor que el mínimo.`
-          );
-          return prev;
-        }
-      }
-
-      return next;
-    });
-  };
-
-  const handleMinTemp = (v: number) =>
-    updateFormField("tempMin", v, {
-      against: "tempMax",
-      type: "min",
-      label: "La temperatura mínima",
-    });
-
-  const handleMaxTemp = (v: number) =>
-    updateFormField("tempMax", v, {
-      against: "tempMin",
-      type: "max",
-      label: "La temperatura máxima",
-    });
-
-  const handleMinHum = (v: number) =>
-    updateFormField("humMin", v, {
-      against: "humMax",
-      type: "min",
-      label: "La humedad mínima",
-    });
-
-  const handleMaxHum = (v: number) =>
-    updateFormField("humMax", v, {
-      against: "humMin",
-      type: "max",
-      label: "La humedad máxima",
-    });
-
-  const handleResetDefaults = () => {
-    setForm({
-      tempMin: DEFAULTS.tempMin,
-      tempMax: DEFAULTS.tempMax,
-      humMin: DEFAULTS.humMin,
-      humMax: DEFAULTS.humMax,
-    });
-    showToast("info", "Se restauraron los valores recomendados.");
-  };
 
   const handleSave = async () => {
     if (!deviceId) {
@@ -227,28 +285,35 @@ const AlertThresholdModal: React.FC<Props> = ({
 
     try {
       setSaving(true);
+
+      const tempMin = clamp(
+        toNum(form.tempMin, DEFAULTS.tempMin),
+        -50,
+        100
+      );
+      const tempMax = clamp(
+        toNum(form.tempMax, DEFAULTS.tempMax),
+        -50,
+        100
+      );
+      const humMin = clamp(
+        toNum(form.humMin, DEFAULTS.humMin),
+        0,
+        100
+      );
+      const humMax = clamp(
+        toNum(form.humMax, DEFAULTS.humMax),
+        0,
+        100
+      );
+
       await upsertThresholdByDevEui(deviceId, {
-        temperature_max: clamp(
-          toNum(form.tempMax, DEFAULTS.tempMax),
-          -50,
-          100
-        ),
-        temperature_min: clamp(
-          toNum(form.tempMin, DEFAULTS.tempMin),
-          -50,
-          100
-        ),
-        humidity_max: clamp(
-          toNum(form.humMax, DEFAULTS.humMax),
-          0,
-          100
-        ),
-        humidity_min: clamp(
-          toNum(form.humMin, DEFAULTS.humMin),
-          0,
-          100
-        ),
+        temperature_max: tempMax,
+        temperature_min: tempMin,
+        humidity_max: humMax,
+        humidity_min: humMin,
       });
+
       showToast("success", "Umbrales guardados correctamente ✅");
       setTimeout(onClose, 900);
     } catch (e: any) {
@@ -267,7 +332,7 @@ const AlertThresholdModal: React.FC<Props> = ({
         isOpen={isOpen}
         onClose={onClose}
         className=""
-        closeOnBackdrop={false} // 👈 IMPORTANTE: no cerrar al hacer click afuera
+        closeOnBackdrop={false}
       >
         <ModalHeader
           title="Umbrales de alerta"
@@ -341,18 +406,22 @@ const AlertThresholdModal: React.FC<Props> = ({
                     Mínima
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={form.tempMin}
-                    min={-50}
-                    max={form.tempMax}
                     disabled={saving}
-                    onChange={(e) => handleMinTemp(Number(e.target.value))}
+                    onChange={(e) => handleFieldChange("tempMin", e.target.value)}
                     className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
-                      form.tempMin > form.tempMax
+                      fieldErrors.tempMin
                         ? "border-red-400 focus:ring-red-400"
                         : "border-gray-300 focus:ring-blue-400"
                     }`}
+                    placeholder="-50 a 100"
                   />
+                  {/* Área de error con altura fija */}
+                  <p className="mt-1 h-4 text-[11px] leading-none text-red-500 overflow-hidden text-ellipsis whitespace-nowrap">
+                    {fieldErrors.tempMin}
+                  </p>
                 </div>
 
                 <div>
@@ -360,18 +429,21 @@ const AlertThresholdModal: React.FC<Props> = ({
                     Máxima
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={form.tempMax}
-                    min={form.tempMin}
-                    max={100}
                     disabled={saving}
-                    onChange={(e) => handleMaxTemp(Number(e.target.value))}
+                    onChange={(e) => handleFieldChange("tempMax", e.target.value)}
                     className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
-                      form.tempMax < form.tempMin
+                      fieldErrors.tempMax
                         ? "border-red-400 focus:ring-red-400"
                         : "border-gray-300 focus:ring-blue-400"
                     }`}
+                    placeholder="-50 a 100"
                   />
+                  <p className="mt-1 h-4 text-[11px] leading-none text-red-500 overflow-hidden text-ellipsis whitespace-nowrap">
+                    {fieldErrors.tempMax}
+                  </p>
                 </div>
               </div>
             </section>
@@ -393,18 +465,21 @@ const AlertThresholdModal: React.FC<Props> = ({
                     Mínima
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={form.humMin}
-                    min={0}
-                    max={form.humMax}
                     disabled={saving}
-                    onChange={(e) => handleMinHum(Number(e.target.value))}
+                    onChange={(e) => handleFieldChange("humMin", e.target.value)}
                     className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
-                      form.humMin > form.humMax
+                      fieldErrors.humMin
                         ? "border-red-400 focus:ring-red-400"
                         : "border-gray-300 focus:ring-blue-400"
                     }`}
+                    placeholder="0 a 100"
                   />
+                  <p className="mt-1 h-4 text-[11px] leading-none text-red-500 overflow-hidden text-ellipsis whitespace-nowrap">
+                    {fieldErrors.humMin}
+                  </p>
                 </div>
 
                 <div>
@@ -412,18 +487,21 @@ const AlertThresholdModal: React.FC<Props> = ({
                     Máxima
                   </label>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={form.humMax}
-                    min={form.humMin}
-                    max={100}
                     disabled={saving}
-                    onChange={(e) => handleMaxHum(Number(e.target.value))}
+                    onChange={(e) => handleFieldChange("humMax", e.target.value)}
                     className={`w-full border rounded-lg px-2.5 py-2 text-sm outline-none focus:ring-1 ${
-                      form.humMax < form.humMin
+                      fieldErrors.humMax
                         ? "border-red-400 focus:ring-red-400"
                         : "border-gray-300 focus:ring-blue-400"
                     }`}
+                    placeholder="0 a 100"
                   />
+                  <p className="mt-1 h-4 text-[11px] leading-none text-red-500 overflow-hidden text-ellipsis whitespace-nowrap">
+                    {fieldErrors.humMax}
+                  </p>
                 </div>
               </div>
             </section>
