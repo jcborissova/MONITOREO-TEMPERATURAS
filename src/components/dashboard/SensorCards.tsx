@@ -539,43 +539,47 @@ const SensorCards: React.FC<SensorCardsProps> = ({
       )}
 
       {loading ? (
-        <div className="grid [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))] gap-3 sm:gap-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))}
+        <div className="max-h-[520px] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </div>
         </div>
       ) : items.length === 0 ? (
         <div className="py-8 text-center text-gray-500 text-sm">
           No hay sensores para mostrar.
         </div>
       ) : (
-        <div className="grid [grid-template-columns:repeat(auto-fill,minmax(240px,1fr))] gap-3 sm:gap-4">
-          {items.map((d, i) => {
-            const devEui = (d.room as any).devEUI as string | undefined;
-            const perSensor =
-              devEui && thresholdsByDevEui[devEui];
+        <div className="max-h-[520px] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+            {items.map((d, i) => {
+              const devEui = (d.room as any).devEUI as string | undefined;
+              const perSensor =
+                devEui && thresholdsByDevEui[devEui];
 
-            const fallback: Thresholds = globalFallback ?? {};
-            const resolved: Thresholds = perSensor
-              ? {
-                  temperature: perSensor.temperature,
-                  humidity: perSensor.humidity,
-                  tolerance: perSensor.tolerance ?? 2,
-                }
-              : fallback;
+              const fallback: Thresholds = globalFallback ?? {};
+              const resolved: Thresholds = perSensor
+                ? {
+                    temperature: perSensor.temperature,
+                    humidity: perSensor.humidity,
+                    tolerance: perSensor.tolerance ?? 2,
+                  }
+                : fallback;
 
-            return (
-              <SensorCard
-                key={devEui ?? `${d.name}-${i}`}
-                room={d.room}
-                isConnected={d.isConnected}
-                lastSeen={d.lastSeen}
-                isStale={d.isStale}
-                thresholds={resolved}
-                onClick={onCardClick}
-              />
-            );
-          })}
+              return (
+                <SensorCard
+                  key={devEui ?? `${d.name}-${i}`}
+                  room={d.room}
+                  isConnected={d.isConnected}
+                  lastSeen={d.lastSeen}
+                  isStale={d.isStale}
+                  thresholds={resolved}
+                  onClick={onCardClick}
+                />
+              );
+            })}
+          </div>
         </div>
       )}
     </section>
