@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import React, { useMemo, useState, useContext } from "react";
 import type { Room } from "../../types/types";

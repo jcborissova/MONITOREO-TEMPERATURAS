@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
@@ -186,14 +187,20 @@ const UsersPage: React.FC = () => {
   }, [loadUsers]);
 
   // 🔝 Ordenar usuarios: primero el usuario logueado, luego el resto (por fecha)
+  // 🔝 Filtrar y ordenar usuarios:
+  // - Si eres admin: ves todos, primero tú y luego el resto por fecha
+  // - Si NO eres admin: solo ves tu propio usuario
   const rows = useMemo(() => {
-    if (!currentUser) return users;
+    if (!currentUser) return [];
+
+    // Si no es admin, solo su propio usuario
+    const baseList = isAdmin ? users : users.filter((u) => isSelf(u));
 
     const currentId =
       (currentUser as any).id ?? (currentUser as any).userId ?? null;
     const meEmail = currentUser.email?.toLowerCase?.() ?? "";
 
-    return [...users].sort((a, b) => {
+    return [...baseList].sort((a, b) => {
       const aId = (a as any).id ?? (a as any).userId ?? null;
       const bId = (b as any).id ?? (b as any).userId ?? null;
 
@@ -211,7 +218,8 @@ const UsersPage: React.FC = () => {
       const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return bDate - aDate;
     });
-  }, [users, currentUser]);
+  }, [users, currentUser, isAdmin]);
+
 
   /* =========================
      Validación formulario

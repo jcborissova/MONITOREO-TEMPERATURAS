@@ -165,7 +165,7 @@ const Dashboard: React.FC = () => {
   // Primera carga: si no hay sensores, intenta refrescar
   useEffect(() => {
     if (!sensors.length) void handleRefresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   /* ========= KPIs derivados ========= */
