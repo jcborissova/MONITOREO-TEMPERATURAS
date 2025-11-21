@@ -23,10 +23,10 @@ const keySensors = "ALL_SENSORS";
 /* =========================
    Límites y muestreo
 ========================= */
-const STEP_MIN = 2_000;       // punto de partida mínimo
-const MAX_LIMIT = 50_000;     // techo conservador por request
+const STEP_MIN = 2_000; // punto de partida mínimo
+const MAX_LIMIT = 50_000; // techo conservador por request
 const HARD_SERVER_LIMIT = 100_000; // si hay hardcap real, ajusta
-const SAMPLE_MINUTES = 5;     // cada 5 min (≈288/día)
+const SAMPLE_MINUTES = 5; // cada 5 min (≈288/día)
 
 /* =========================
    Helpers
@@ -51,16 +51,81 @@ const getStablePosition = (name: string) => {
   };
 };
 
+/**
+ * Normaliza un timestamp a un string TIPO ISO **en hora local** y SIN 'Z'.
+ *
+ * Reglas:
+ *  - Si viene string:
+ *      - Reemplaza espacio por 'T'
+ *      - Quita 'Z' al final si existe
+ *      - Valida que Date.parse(s) no sea NaN
+ *  - Si viene número/Date:
+ *      - Construye "YYYY-MM-DDTHH:mm:ss" usando componentes LOCALES
+ */
 const toSafeISO = (v: any): string | undefined => {
   if (v == null) return undefined;
-  const val =
+
+  // string → asumimos que ya está en hora local (o queremos tratarlo así)
+  if (typeof v === "string") {
+    let s = v.trim();
+
+    if (s.includes(" ")) {
+      s = s.replace(" ", "T");
+    }
+
+    if (s.endsWith("Z")) {
+      s = s.slice(0, -1);
+    }
+
+    const ms = Date.parse(s);
+    return Number.isNaN(ms) ? undefined : s;
+  }
+
+  // numérico / Date-like → generamos string local sin Z
+  const d =
     typeof v === "number"
       ? new Date(v < 9_999_999_999 ? v * 1000 : v)
-      : typeof v === "string"
-      ? new Date(v.includes(" ") ? v.replace(" ", "T") : v)
       : new Date(v);
-  const ms = val.getTime();
-  return Number.isFinite(ms) ? val.toISOString() : undefined;
+
+  const ms = d.getTime();
+  if (!Number.isFinite(ms)) return undefined;
+
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const year = d.getFullYear();
+  const month = pad2(d.getMonth() + 1);
+  const day = pad2(d.getDate());
+  const hour = pad2(d.getHours());
+  const min = pad2(d.getMinutes());
+  const sec = pad2(d.getSeconds());
+
+  return `${year}-${month}-${day}T${hour}:${min}:${sec}`;
+};
+
+/**
+ * Convierte a milisegundos asumiendo que:
+ *  - Strings tipo "YYYY-MM-DDTHH:mm:ss[.sss][Z]" son HORA LOCAL (si trae Z, se quita).
+ *  - Números se interpretan como epoch segundos o ms.
+ */
+const toMsLocal = (v: any): number => {
+  if (!v && v !== 0) return NaN;
+
+  if (typeof v === "number") {
+    const d = new Date(v < 9_999_999_999 ? v * 1000 : v);
+    const ms = d.getTime();
+    return Number.isFinite(ms) ? ms : NaN;
+  }
+
+  if (typeof v === "string") {
+    let s = v.trim();
+    if (s.includes(" ")) s = s.replace(" ", "T");
+    if (s.endsWith("Z")) s = s.slice(0, -1);
+    const ms = Date.parse(s);
+    return Number.isNaN(ms) ? NaN : ms;
+  }
+
+  const d = new Date(v);
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : NaN;
 };
 
 const toSafeNum = (v: any): number | undefined => {
@@ -75,8 +140,8 @@ const estimatePointsPerSensor = (
   sampleMinutes = SAMPLE_MINUTES,
   headroom = 0.2
 ) => {
-  const since = new Date(sinceISO).getTime();
-  const until = new Date(untilISO).getTime();
+  const since = toMsLocal(sinceISO);
+  const until = toMsLocal(untilISO);
   if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since) return 0;
 
   const msPerSample = sampleMinutes * 60_000;
@@ -102,15 +167,14 @@ const mapApiSensorToRoom = (raw: any, idx: number): Room => {
     deviceName: raw.deviceName ?? undefined,
     temperature: toSafeNum(raw.temperature),
     humedity: toSafeNum(raw.humedity ?? raw.humidity),
-    lastPower: toSafeNum(raw.lastPower),
     lastPowerDate,
-    battery: toSafeNum(raw.battery ?? raw.batteryPct),
+    lastPower: toSafeNum(raw.lastPower ?? raw.lastPowerPct),
     status: typeof raw.status === "string" ? raw.status : undefined,
     alert: Boolean(raw.alert) || false,
     warning: Boolean(raw.warning) && !Boolean(raw.alert),
     top: pos.top,
     left: pos.left,
-    updatedAt: updatedAt ?? new Date().toISOString(),
+    updatedAt: updatedAt ?? toSafeISO(new Date())!, // local sin Z
     ...(baseLoc && {
       lat: baseLoc.position?.[0],
       lng: baseLoc.position?.[1],
@@ -125,7 +189,7 @@ const mapApiHistoryToMeasure = (raw: any): Measure => {
     toSafeISO(raw.date) ??
     toSafeISO(raw.created_at) ??
     toSafeISO(raw.time) ??
-    new Date().toISOString();
+    toSafeISO(new Date())!;
 
   return {
     timestamp: ts,
@@ -183,7 +247,10 @@ export const sensorsService = {
       timeout: API_TIMEOUTS.normal,
     });
     const arr = unwrapArray<any>(res).map(mapApiHistoryToMeasure);
-    return arr.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return arr.sort(
+      (a, b) =>
+        toMsLocal(a.timestamp) - toMsLocal(b.timestamp)
+    );
   },
 
   /**
@@ -196,18 +263,20 @@ export const sensorsService = {
   async getSensorHistoryRange(
     devEUI: string,
     opts: {
-      since: string; // ISO
-      until: string; // ISO
-      pageSize?: number; // compat opcional
-      maxPages?: number; // compat opcional
+      since: string; // ISO (la tratamos como LOCAL)
+      until: string; // ISO (la tratamos como LOCAL)
+      pageSize?: number;
+      maxPages?: number;
       signal?: AbortSignal;
     }
   ): Promise<Measure[]> {
     if (!devEUI || !opts?.since || !opts?.until) return [];
 
-    const sinceMs = new Date(opts.since).getTime();
-    const untilMs = new Date(opts.until).getTime();
-    if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || untilMs < sinceMs) return [];
+    const sinceMs = toMsLocal(opts.since);
+    const untilMs = toMsLocal(opts.until);
+    if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || untilMs < sinceMs) {
+      return [];
+    }
 
     const est = estimatePointsPerSensor(opts.since, opts.until, SAMPLE_MINUTES, 0.2);
     const MAX = Math.min(MAX_LIMIT, HARD_SERVER_LIMIT);
@@ -239,32 +308,40 @@ export const sensorsService = {
           "x-retries": 2,
           "x-retryDelay": 500,
         });
+
         const all = unwrapArray<any>(res).map(mapApiHistoryToMeasure);
-        all.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        all.sort(
+          (a, b) =>
+            toMsLocal(a.timestamp) - toMsLocal(b.timestamp)
+        );
 
         const filtered = all.filter((m) => {
-          const t = new Date(m.timestamp).getTime();
+          const t = toMsLocal(m.timestamp);
           return Number.isFinite(t) && t >= sinceMs && t <= untilMs;
         });
         bestFiltered = filtered;
 
-        const allMin = all[0]?.timestamp ? new Date(all[0].timestamp).getTime() : Number.POSITIVE_INFINITY;
-        const allMax = all[all.length - 1]?.timestamp ? new Date(all[all.length - 1].timestamp).getTime() : Number.NEGATIVE_INFINITY;
+        const allMin = all[0]?.timestamp
+          ? toMsLocal(all[0].timestamp)
+          : Number.POSITIVE_INFINITY;
+        const allMax = all[all.length - 1]?.timestamp
+          ? toMsLocal(all[all.length - 1].timestamp)
+          : Number.NEGATIVE_INFINITY;
 
         const coversLeft = allMin <= sinceMs;
         const coversRight = allMax >= untilMs;
         const coveredSpan = coversLeft && coversRight;
 
-        if (coveredSpan && filtered.length > 0) break;   // cubierto con datos
-        if (coveredSpan && filtered.length === 0) {       // cubierto sin datos
+        if (coveredSpan && filtered.length > 0) break; // cubierto con datos
+        if (coveredSpan && filtered.length === 0) {
+          // cubierto sin datos en rango
           bestFiltered = [];
           break;
         }
-        if (previousFetched === all.length) break;        // no hay más profundidad
+        if (previousFetched === all.length) break; // no hay más profundidad
         previousFetched = all.length;
-        if (limit >= MAX) break;                          // techo de seguridad
+        if (limit >= MAX) break; // techo de seguridad
 
-        // siguiente salto exponencial
         const next = Math.min(Math.ceil(limit * 1.7), MAX);
         if (next === limit) break;
         limit = next;
