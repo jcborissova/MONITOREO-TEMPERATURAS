@@ -31,14 +31,12 @@ const NAV_ITEMS: Item[] = [
   { to: "/devices",      label: "Dispositivos",   icon: <ComputerDesktopIcon className="w-5 h-5" /> },
   { to: "/report",       label: "Reporte",        icon: <DocumentChartBarIcon className="w-5 h-5" /> },
   { to: "/notifications",label: "Notificaciones", icon: <BellIcon className="w-5 h-5" /> },
-  { to: "/users", label: "Usuarios", icon: <UserGroupIcon className="w-5 h-5" /> },
-
+  { to: "/users",        label: "Usuarios",       icon: <UserGroupIcon className="w-5 h-5" /> },
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
   const navigate = useNavigate();
 
-  // Colapso persistente en escritorio
   const [collapsed, setCollapsed] = React.useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("wh_sidebar_collapsed") === "1";
@@ -50,7 +48,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
     }
   }, [collapsed]);
 
-  // Bloquea scroll cuando drawer móvil está abierto
   React.useEffect(() => {
     if (!isOpen) return;
     const prev = document.body.style.overflow;
@@ -58,7 +55,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
     return () => { document.body.style.overflow = prev; };
   }, [isOpen]);
 
-  // Cierra con Escape en móvil
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen) toggleSidebar();
@@ -102,8 +98,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
       >
         {/* Header móvil */}
         <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-200">
-          <img src="/assets/WHLOGO.png" alt="Logo Warehouses" className="w-10 h-10 rounded-full shadow-sm" />
-          <span className="text-lg font-semibold text-gray-800 truncate">Smart electric</span>
+          <img
+            src="/assets/WHLOGO.png"
+            alt="Logo Warehouses"
+            className="w-10 h-10 rounded-full shadow-sm"
+          />
+          <span className="text-lg font-semibold text-gray-800 truncate">
+            Smart electric
+          </span>
           <button
             onClick={toggleSidebar}
             className="ml-auto p-2 rounded-full text-gray-600 hover:bg-gray-100"
@@ -135,7 +137,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
         <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200 bg-white">
           <button
             onClick={handleLogout}
-            className="w-full inline-flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-green-50 hover:text-green-600 transition"
+            className="w-full inline-flex items-center gap-3 px-3 py-2 rounded-lg text-gray-700 hover:bg-brand-soft hover:text-brand-primaryDark transition"
           >
             <ArrowRightOnRectangleIcon className="w-5 h-5" />
             <span className="font-medium">Logout</span>
@@ -167,7 +169,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
 
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-5 border-b border-gray-200">
-          <img src="/assets/WHLOGO.png" alt="Logo Warehouses" className="w-10 h-10 rounded-full shadow-sm" />
+          <img
+            src="/assets/WHLOGO.png"
+            alt="Logo Warehouses"
+            className="w-10 h-10 rounded-full shadow-sm"
+          />
           <span
             className={[
               "text-lg font-semibold text-gray-800 truncate origin-left",
@@ -200,7 +206,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
           <button
             onClick={handleLogout}
             className={[
-              "w-full inline-flex items-center px-3 py-2 rounded-lg text-gray-700 hover:bg-green-50 hover:text-green-600",
+              "w-full inline-flex items-center px-3 py-2 rounded-lg text-gray-700 hover:bg-brand-soft hover:text-brand-primaryDark",
               collapsed ? "justify-center gap-0" : "justify-start gap-3",
               motionClass,
             ].join(" ")}
@@ -246,7 +252,8 @@ function SmartNavLink({
         [
           "group relative flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors",
           "text-gray-700 hover:bg-gray-100 hover:text-gray-900",
-          isActive ? "bg-green-50 text-green-700 active" : "",
+          // solo el estado activo usa la paleta de marca
+          isActive ? "bg-brand-soft text-brand-primary active" : "",
         ].join(" ")
       }
     >
@@ -270,19 +277,18 @@ function SmartNavLink({
         {label}
       </span>
 
-      {/* Barrita activa a la izquierda (controlada por la clase 'active' del parent) */}
+      {/* Barrita activa a la izquierda */}
       <ActiveBar />
     </NavLink>
   );
 }
 
-/** Barrita vertical que aparece cuando el item está activo */
 function ActiveBar() {
   return (
     <span
       aria-hidden="true"
       className="pointer-events-none absolute left-0 top-0 h-full w-0 opacity-0 transition-all duration-300
-                 group-[.active]:opacity-100 group-[.active]:w-0.5 group-[.active]:bg-green-500"
+                 group-[.active]:opacity-100 group-[.active]:w-0.5 group-[.active]:bg-brand-primary"
     />
   );
 }

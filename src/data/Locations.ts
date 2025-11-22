@@ -11,11 +11,12 @@ export interface LocationInfo {
 
 export const locations: LocationInfo[] = [
   {
-    name: "Smart Electric Solution - Almacén Principal",
-    position: [18.4861, -69.9312],
-    address: "Av. Industrial, Santo Domingo, República Dominicana",
-    phone: "809-555-1234",
-    hours: "Lunes a Viernes 8:00 AM - 6:00 PM",
-    imageUrl: "/assets/images/smart-electric-solution.png",
+    name: "Agrofem - Almacén Navarrete",
+    position: [19.67128, -70.85603], // Coordenadas de Navarrete
+    address:
+      "Autopista Duarte, Navarrete, Santiago, República Dominicana",
+    phone: "809-XXX-XXXX",
+    hours: "Lunes a Viernes 8:00 AM - 5:00 PM",
+    imageUrl: "/assets/images/agrofem-logo.png",
   },
 ];

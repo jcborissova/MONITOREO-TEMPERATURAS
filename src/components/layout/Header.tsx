@@ -2,8 +2,10 @@
 import React, { useEffect, useState } from "react";
 import { Bars3Icon, UserCircleIcon } from "@heroicons/react/24/solid";
 import NotificationBell from "../notifications/NotificationBell";
-import CompanyLogo from "../../assets/images/SmartLogoBlack.png";
 import AuthService from "../../services/auth.service";
+
+// 👉 LOGO DE AGROFEM (ruta real que me diste)
+import AgrofemLogo from "../../assets/images/agrofem-logo.png";
 
 interface HeaderProps {
   isSidebarOpen: boolean;
@@ -21,11 +23,8 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
       const last = (user as any).lastName || "";
       const full = `${first} ${last}`.trim();
 
-      if (full && full !== "") {
-        setDisplayName(full);
-      } else if (user.email) {
-        setDisplayName(user.email);
-      }
+      if (full) setDisplayName(full);
+      else if (user.email) setDisplayName(user.email);
     }
   }, []);
 
@@ -35,7 +34,7 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
         
         <div className="h-14 sm:h-16 flex items-center gap-3">
 
-          {/* Burger (móvil) */}
+          {/* Mobile toggle */}
           <button
             onClick={toggleSidebar}
             className="flex-shrink-0 p-2 rounded-md hover:bg-gray-100 text-gray-600 lg:hidden"
@@ -44,34 +43,34 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
             <Bars3Icon className="w-6 h-6" />
           </button>
 
-          {/* Logo */}
+          {/* Logo Agrofem */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="h-10 w-10 sm:h-12 sm:w-12 md:h-14 md:w-14 flex items-center justify-center">
+            <div className="h-10 w-10 sm:h-12 sm:w-12 flex items-center justify-center">
               <img
-                src={CompanyLogo}
-                alt="Smart Electric Logo"
-                className="h-9 sm:h-11 md:h-12 w-auto object-contain"
+                src={AgrofemLogo}
+                alt="Agrofem Logo"
+                className="h-9 sm:h-11 w-auto object-contain"
               />
             </div>
           </div>
 
-          {/* Título */}
+          {/* Title */}
           <div className="flex flex-col min-w-0">
             <h1 className="text-sm sm:text-base md:text-lg font-semibold text-gray-900 truncate">
               Warehouse Monitoring
             </h1>
 
             <p className="hidden sm:block text-[11px] text-gray-500 truncate">
-              Panel de control · temperatura, humedad y alertas
+              Panel de control · Temperatura · Humedad · Alertas
             </p>
           </div>
 
-          {/* Acciones derecha */}
+          {/* Right icons */}
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
 
             <NotificationBell />
 
-            {/* Usuario — oculto totalmente en mobile */}
+            {/* User */}
             <button
               type="button"
               className="
@@ -79,7 +78,7 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
                 items-center gap-2
                 rounded-full border border-gray-200 bg-white
                 px-3 py-2
-                hover:border-green-200 hover:bg-green-50/70 hover:text-green-700
+                hover:border-brand-primary hover:bg-brand-soft/70 hover:text-brand-primary
                 transition text-gray-700
               "
             >

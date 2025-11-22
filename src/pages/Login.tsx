@@ -3,11 +3,10 @@ import React, { useState, useEffect, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import authService from "../services/auth.service";
 
-// Icono de la app
-import Logo from "../assets/images/smart-electric-solution.png";
-
-// Logo oficial de la empresa (el que mostraste)
-import CompanyLogo from "../assets/images/SmartLogoBlack.png";
+// Logo Agrofem (empresa)
+import CompanyLogo from "../assets/images/agrofem-logo.png";
+// Icono de la App (monitor temperatura)
+import AppLogo from "../assets/images/smart-electric-solution.png";
 
 import {
   XMarkIcon,
@@ -26,19 +25,15 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // 🚀 Redirigir si ya está autenticado
   useEffect(() => {
     const token = authService.getToken();
-    if (token) {
-      navigate("/", { replace: true });
-    }
+    if (token) navigate("/", { replace: true });
   }, [navigate]);
 
-  // 🔔 Ocultar error automáticamente después de 3s
   useEffect(() => {
     if (!error) return;
-    const timer = setTimeout(() => setError(""), 3000);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => setError(""), 3000);
+    return () => clearTimeout(t);
   }, [error]);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -58,13 +53,13 @@ const Login: React.FC = () => {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      {/* Fondo decorativo acorde al logo (teal + azul) */}
+      {/* Fondos suaves teal (como tenías antes) */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -top-40 -left-20 h-80 w-80 rounded-full bg-teal-200/50 blur-3xl" />
         <div className="absolute -bottom-40 -right-10 h-80 w-80 rounded-full bg-cyan-300/40 blur-3xl" />
       </div>
 
-      {/* 🔔 Notificación de error */}
+      {/* Error */}
       {error && (
         <div className="fixed top-4 inset-x-0 flex justify-center z-50">
           <div className="bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-slideDown">
@@ -74,81 +69,58 @@ const Login: React.FC = () => {
         </div>
       )}
 
-      {/* Contenido principal */}
+      {/* Grid principal */}
       <div className="relative z-10 w-full max-w-5xl grid lg:grid-cols-2 gap-10 items-center">
-        {/* ================================ */}
-        {/*   PANEL DE BRANDING CORPORATIVO */}
-        {/* ================================ */}
+        {/* Lado izquierdo: branding suave de Agrofem */}
         <div className="hidden lg:flex flex-col gap-6 text-slate-800">
-          {/* Logo de Empresa */}
           <div className="flex items-center gap-4 mb-2">
-            <div className="flex h-24 w-24 xl:h-28 xl:w-28 items-center justify-center rounded-2xl bg-teal-50 shadow-md border border-teal-100">
+            <div className="flex h-24 w-24 xl:h-28 xl:w-28 items-center justify-center rounded-2xl shadow-md border border-brand-accentSoft">
               <img
                 src={CompanyLogo}
-                alt="Smart Electric Solution Company Logo"
+                alt="Agrofem Logo"
                 className="h-20 xl:h-24 w-auto object-contain drop-shadow"
               />
             </div>
             <div>
               <h3 className="text-xl font-bold text-slate-900">
-                Smart Electric Solution
+                Sistema de Monitoreo Agrofem
               </h3>
               <p className="text-sm text-slate-500 mt-1">
-                Empresa propietaria del sistema
+                Solución interna para almacenes Agrofem
               </p>
             </div>
           </div>
 
-
-          {/* Badge */}
-          <div className="inline-flex items-center gap-3 rounded-full bg-white/80 px-4 py-2 shadow-sm border border-slate-100 w-max mt-2">
-            <span className="h-2 w-2 rounded-full bg-teal-500 animate-pulse" />
-            <span className="text-xs font-medium text-slate-700">
-              Plataforma interna corporativa
-            </span>
-          </div>
-
-          {/* Título principal */}
-          <h1 className="text-3xl xl:text-4xl font-bold text-slate-900 leading-tight">
-            Controla tu{" "}
-            <span className="text-teal-600">energía</span> y tus{" "}
-            <span className="text-teal-600">operaciones</span> desde un solo
-            lugar.
-          </h1>
-
           <p className="text-sm md:text-base text-slate-600 max-w-md">
-            Accede al panel para monitorear consumos, gestionar equipos y tomar
-            decisiones en tiempo real. Tecnología inteligente para empresas que
-            necesitan control y visibilidad constantes.
+            Monitorea temperatura y humedad en tiempo real y recibe alertas
+            tempranas para proteger la cadena de frío y la calidad de la carne.
           </p>
 
           <ul className="space-y-2 text-sm text-slate-600">
             <li className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
-              Visibilidad clara de los puntos eléctricos.
+              <span className="h-1.5 w-1.5 rounded-full bg-brand-primary" />
+              Integrado con sensores de temperatura y humedad en planta.
             </li>
             <li className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
-              Alertas en tiempo real ante anomalías.
+              <span className="h-1.5 w-1.5 rounded-full bg-brand-primary" />
+              Alertas configurables según rangos definidos por Agrofem.
             </li>
             <li className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
-              Pensado para crecer con tu operación.
+              <span className="h-1.5 w-1.5 rounded-full bg-brand-primary" />
+              Diseñado a la medida de la operación de Agrofem.
             </li>
           </ul>
         </div>
 
-        {/* ================================ */}
-        {/*             CARD LOGIN           */}
-        {/* ================================ */}
+        {/* Card Login */}
         <div className="w-full">
           <div className="mx-auto w-full max-w-md rounded-2xl bg-white/95 shadow-xl border border-slate-100 px-6 py-8 sm:px-8 sm:py-10 backdrop-blur">
-            {/* Icono de la APP */}
+            {/* Logos app + título */}
             <div className="flex flex-col items-center mb-6">
               <div className="mb-4 rounded-2xl bg-slate-50 border border-slate-100 shadow-sm px-5 py-4">
                 <img
-                  src={Logo}
-                  alt="Smart Electric Solution App Icon"
+                  src={AppLogo}
+                  alt="Icono de la App"
                   className="h-16 sm:h-20 md:h-24 w-auto object-contain"
                 />
               </div>
@@ -157,12 +129,13 @@ const Login: React.FC = () => {
                 Panel de Monitoreo
               </h2>
               <p className="text-center text-slate-500 mt-1 text-sm">
-                Inicia sesión para acceder a tus datos de energía y sensores.
+                Inicia sesión para acceder a los datos de tus almacenes Agrofem.
               </p>
             </div>
 
             {/* Formulario */}
             <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Email */}
               <div>
                 <label className="block text-slate-700 text-sm font-medium mb-1.5">
                   Correo electrónico
@@ -173,7 +146,7 @@ const Login: React.FC = () => {
                   </span>
                   <input
                     type="email"
-                    placeholder="ejemplo@correo.com"
+                    placeholder="ejemplo@agrofem.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full border border-slate-200 bg-slate-50/80 px-10 py-3 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition"
@@ -182,6 +155,7 @@ const Login: React.FC = () => {
                 </div>
               </div>
 
+              {/* Password */}
               <div>
                 <label className="block text-slate-700 text-sm font-medium mb-1.5">
                   Contraseña
@@ -212,6 +186,7 @@ const Login: React.FC = () => {
                 </div>
               </div>
 
+              {/* Remember + Forgot */}
               <div className="flex items-center justify-between text-xs sm:text-sm text-slate-600">
                 <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                   <input
@@ -220,6 +195,7 @@ const Login: React.FC = () => {
                   />
                   <span>Recordarme</span>
                 </label>
+
                 <button
                   type="button"
                   className="text-teal-600 hover:text-teal-700 font-medium"
@@ -228,6 +204,7 @@ const Login: React.FC = () => {
                 </button>
               </div>
 
+              {/* Submit */}
               <button
                 type="submit"
                 disabled={loading}
@@ -247,22 +224,42 @@ const Login: React.FC = () => {
                       r="10"
                       stroke="currentColor"
                       strokeWidth="4"
-                    ></circle>
+                    />
                     <path
                       className="opacity-75"
                       fill="currentColor"
                       d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                    ></path>
+                    />
                   </svg>
                 )}
                 {loading ? "Ingresando..." : "Ingresar"}
               </button>
             </form>
 
-            <p className="mt-4 text-[11px] sm:text-xs text-center text-slate-400">
-              Acceso exclusivo para personal autorizado de Smart Electric
-              Solution.
-            </p>
+            {/* Footer logos + créditos */}
+            <div className="mt-6 border-t border-slate-100 pt-4 flex flex-col gap-2 items-center">
+              <div className="flex items-center gap-3">
+                <img
+                  src={CompanyLogo}
+                  alt="Agrofem Logo"
+                  className="h-8 w-auto object-contain"
+                />
+                <span className="text-xs text-slate-400">·</span>
+                <img
+                  src={AppLogo}
+                  alt="App Logo"
+                  className="h-7 w-auto object-contain"
+                />
+              </div>
+              <p className="text-[11px] text-slate-500 text-center">
+                Desarrollado por{" "}
+                <span className="font-semibold">Smart Electric Solution</span>{" "}
+                para <span className="font-semibold">Agrofem</span>.
+              </p>
+              <p className="text-[11px] text-slate-400 text-center">
+                Uso exclusivo para personal autorizado de Agrofem.
+              </p>
+            </div>
           </div>
         </div>
       </div>
