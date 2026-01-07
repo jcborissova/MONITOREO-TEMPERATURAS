@@ -3,28 +3,50 @@
   <head>
     <meta charset="UTF-8" />
 
-    <!-- Favicon -->
-    <link rel="icon" type="image/png" href="/assets/images/agrofem-logo.png" id="logo-icon" />
+    <!-- AGROFEM APP -->
+    <title>Agrofem Monitor — Plataforma de Sensores</title>
 
-    <!-- SEO & Meta -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Smart Electric Solution — Sensor Monitoring Platform</title>
-    <meta name="description" content="Smart Electric Solution — A modern and intelligent platform for monitoring sensors, temperature, humidity, and industrial environments in real time.">
-    <meta name="author" content="Smart Electric Solution">
-    <meta name="keywords" content="Smart Electric Solution, Sensors, IoT, Monitoring, Temperature, Humidity, Industrial, React, TypeScript">
+    <!-- ICONO PRINCIPAL -->
+    <link
+      rel="icon"
+      type="image/png"
+      href="/assets/images/agrofem-logo.png"
+    />
 
-    <!-- Styles -->
-    <link rel="stylesheet" href="/styles/global.css">
+    <!-- CONFIGURACIÓN MÓVIL (iOS + Android) -->
+    <meta
+      name="viewport"
+      content="viewport-fit=cover, width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
 
-    <!-- Logo filter -->
+    <!-- Para modo fullscreen iOS -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Agrofem Monitor" />
+
+    <!-- Para Android -->
+    <meta name="theme-color" content="#ffffff" />
+
+    <!-- Información SEO -->
+    <meta
+      name="description"
+      content="Agrofem Monitor — Plataforma inteligente para monitorear temperatura, humedad y sensores industriales en tiempo real."
+    />
+    <meta name="keywords" content="Agrofem, Sensors, IoT, Monitor, React" />
+    <meta name="author" content="Agrofem" />
+
+    <!-- CSS GLOBAL -->
+    <link rel="stylesheet" href="/styles/global.css" />
+
+    <!-- Logo Filter (si deseas modificar el tono del PNG) -->
     <style>
       #logo-icon {
-        filter: hue-rotate(180deg) brightness(1.2);
+        filter: hue-rotate(180deg) brightness(1.1);
       }
     </style>
   </head>
 
-  <body class="bg-gray-100 text-gray-800 font-sans">
+  <body class="bg-gray-100 text-gray-800 font-sans touch-pan-y">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

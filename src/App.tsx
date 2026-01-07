@@ -1,54 +1,68 @@
-// src/App.tsx
 import React, { Suspense, lazy } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+
 import Layout from "./components/layout/Layout";
+import PrivateRoute from "./components/auth/PrivateRoute";
+
+// Providers globales
 import { SensorsProvider } from "./context/SensorsContext";
 import { WeatherProvider } from "./context/WeatherContext";
 import { NotificationsProvider } from "./context/NotificationsContext";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import WarehousePlanModal from "./components/warehouse/WarehousePlan/WarehousePlanModal";
-import PrivateRoute from "./components/auth/PrivateRoute";
 import { GlobalLoadingProvider } from "./context/GlobalLoadingContext";
-import { useSetupLoadInterceptors } from "./utils/setupLoadInterceptors";
 import CacheBootstrap from "./app/CacheBootstrap";
-import UsersPage from "./pages/UsersPage";
+import { useSetupLoadInterceptors } from "./utils/setupLoadInterceptors";
 
-// Lazy pages
+// Pages
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Warehouses = lazy(() => import("./pages/Warehouses"));
 const Devices = lazy(() => import("./pages/DevicesPage"));
 const ReportPage = lazy(() => import("./pages/ReportPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
+const UsersPage = lazy(() => import("./pages/UsersPage"));
 const Login = lazy(() => import("./pages/Login"));
 
-const RouteFallback: React.FC = () => (
+const RouteFallback = () => (
   <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-white">
     <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" />
   </div>
 );
 
-const Providers: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+/** Interceptores, cache, etc. */
+function ProvidersInside({ children }: { children: React.ReactNode }) {
   useSetupLoadInterceptors();
+  return (
+    <>
+      <CacheBootstrap />
+      {children}
+    </>
+  );
+}
+
+function Providers({ children }: { children: React.ReactNode }) {
   return (
     <APIProvider apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY!} libraries={["maps"]}>
       <SensorsProvider>
         <WeatherProvider>
           <NotificationsProvider>
-            <CacheBootstrap />
-            {children}
-            <WarehousePlanModal />
+            <GlobalLoadingProvider>
+              <ProvidersInside>{children}</ProvidersInside>
+              <WarehousePlanModal />
+            </GlobalLoadingProvider>
           </NotificationsProvider>
         </WeatherProvider>
       </SensorsProvider>
     </APIProvider>
   );
-};
+}
 
-const App: React.FC = () => {
+export default function App() {
   return (
     <Router>
-      <GlobalLoadingProvider>
+      <Providers>
         <Routes>
+          {/* LOGIN */}
           <Route
             path="/login"
             element={
@@ -57,13 +71,13 @@ const App: React.FC = () => {
               </Suspense>
             }
           />
+
+          {/* RUTAS PROTEGIDAS */}
           <Route
-            path="/*"
+            path="/"
             element={
               <PrivateRoute>
-                <Providers>
-                  <Layout />
-                </Providers>
+                <Layout />
               </PrivateRoute>
             }
           >
@@ -75,6 +89,7 @@ const App: React.FC = () => {
                 </Suspense>
               }
             />
+
             <Route
               path="warehouses"
               element={
@@ -83,6 +98,7 @@ const App: React.FC = () => {
                 </Suspense>
               }
             />
+
             <Route
               path="devices"
               element={
@@ -91,6 +107,7 @@ const App: React.FC = () => {
                 </Suspense>
               }
             />
+
             <Route
               path="report"
               element={
@@ -99,6 +116,7 @@ const App: React.FC = () => {
                 </Suspense>
               }
             />
+
             <Route
               path="notifications"
               element={
@@ -107,6 +125,7 @@ const App: React.FC = () => {
                 </Suspense>
               }
             />
+
             <Route
               path="users"
               element={
@@ -116,11 +135,11 @@ const App: React.FC = () => {
               }
             />
           </Route>
+
+          {/* DEFAULT */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </GlobalLoadingProvider>
+      </Providers>
     </Router>
   );
-};
-
-export default App;
+}

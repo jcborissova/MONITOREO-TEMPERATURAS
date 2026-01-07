@@ -20,13 +20,24 @@ export default defineConfig({
       },
     }),
   ],
+
+  // 🔥 IMPORTANTE PARA iOS/Android (Capacitor)
+  base: "",
+
   server: {
+    host: true,             // permite acceso desde iPhone/Android
+    port: 5173,
     proxy: {
       "/api": {
-        target: "http://155.138.193.120:8080", // backend real
+        target: "http://155.138.193.120:8080",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
     },
+  },
+
+  build: {
+    outDir: "dist",
+    sourcemap: false,
   },
 });

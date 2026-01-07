@@ -369,14 +369,17 @@ const DevicesPage: React.FC = () => {
   const handleRefresh = useCallback(async () => {
     if (isRefreshingRef.current) return;
     isRefreshingRef.current = true;
+
     try {
       setIsLoading(true);
-      await Promise.resolve(refreshRef.current?.());
+      // 🔥 FORZAR REFRESH REAL (no importa el throttle)
+      await refreshRef.current?.(true);
     } finally {
       setIsLoading(false);
       isRefreshingRef.current = false;
     }
   }, []);
+
 
   // Primera carga
   useEffect(() => {

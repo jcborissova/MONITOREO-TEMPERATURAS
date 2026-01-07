@@ -7,83 +7,72 @@ const TOKEN_KEY = "access_token";
 const USER_KEY = "user";
 
 class AuthService {
-  async login(credentials: LoginRequest): Promise<LoginResponse> {
+  async login(credentials: LoginRequest): Promise<LoginResponse & { user: User }> {
     try {
-      // 1) login (solo devuelve el token)
+      // Para login: sin reintentos para no sentir retraso
       const response = await apiService.post<LoginResponse>(
         API_ENDPOINTS.LOGIN,
-        credentials
+        credentials,
+        {
+          "x-retries": 0,
+        }
       );
 
-      // 2) Guardar token
-      if (response?.access_token) {
-        localStorage.setItem(TOKEN_KEY, response.access_token);
+      if (!response?.access_token) {
+        throw new Error("Token de autenticación no recibido");
       }
 
-      // 3) Obtener perfil real
-      const profile = await apiService.get<{ message: string; user: any }>(
-        API_ENDPOINTS.PROFILE
+      localStorage.setItem(TOKEN_KEY, response.access_token);
+
+      const profile = await apiService.get<{ user: User }>(
+        API_ENDPOINTS.PROFILE,
+        { "x-retries": 1 }
       );
 
-      // 4) Guardar usuario
-      if (profile?.user) {
-        localStorage.setItem(USER_KEY, JSON.stringify(profile.user));
-      } else {
-        localStorage.removeItem(USER_KEY);
+      if (!profile?.user) {
+        throw new Error("No se pudo obtener el perfil del usuario");
       }
 
-      // 5) Devolver estructura limpia
-      return {
-        ...response,
-        user: profile.user,
-      } as LoginResponse;
-    } catch (error: any) {
-      throw new Error(
-        error?.response?.data?.message || "Error al iniciar sesión"
-      );
+      localStorage.setItem(USER_KEY, JSON.stringify(profile.user));
+
+      return { ...response, user: profile.user };
+    } catch (err: any) {
+      const backendMsg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Error al iniciar sesión";
+
+      throw new Error(backendMsg);
     }
   }
 
-
-  logout(): void {
+  logout() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
-  }
-
-  /** Devuelve el usuario actual o null, sin romper si el JSON está corrupto */
-  getCurrentUser(): User | null {
-    try {
-      const userStr = localStorage.getItem(USER_KEY);
-
-      if (!userStr) return null;
-      if (userStr === "undefined" || userStr === "null") {
-        // Limpia basura antigua
-        localStorage.removeItem(USER_KEY);
-        return null;
-      }
-
-      const parsed = JSON.parse(userStr) as unknown;
-
-      if (!parsed || typeof parsed !== "object") {
-        localStorage.removeItem(USER_KEY);
-        return null;
-      }
-
-      return parsed as User;
-    } catch {
-      // Si algo raro está guardado, lo limpiamos y devolvemos null
-      localStorage.removeItem(USER_KEY);
-      return null;
-    }
   }
 
   getToken(): string | null {
     return localStorage.getItem(TOKEN_KEY);
   }
 
+  getCurrentUser(): User | null {
+    try {
+      const raw = localStorage.getItem(USER_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") {
+        localStorage.removeItem(USER_KEY);
+        return null;
+      }
+      return parsed as User;
+    } catch {
+      localStorage.removeItem(USER_KEY);
+      return null;
+    }
+  }
+
   isAuthenticated(): boolean {
-    const token = this.getToken();
-    return !!token && token.length > 0;
+    return !!this.getToken();
   }
 }
 

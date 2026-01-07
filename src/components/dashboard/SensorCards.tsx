@@ -1,4 +1,4 @@
- /* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import React, { useMemo, useState, useContext } from "react";
 import type { Room } from "../../types/types";
@@ -26,9 +26,9 @@ type Thresholds = { temperature?: Range; humidity?: Range; tolerance?: number };
 interface SensorCardsProps {
   rooms: Room[];
   loading?: boolean;
-  liveWindowMin?: number; // minutos para marcar "stale"
+  liveWindowMin?: number;
   showControls?: boolean;
-  onCardClick?: (room: Room) => void; // abre modal SOLO desde el botón
+  onCardClick?: (room: Room) => void;
   thresholds?: Thresholds;
   className?: string;
 }
@@ -130,36 +130,7 @@ const headerAccent = (
 };
 
 /* =========================
-   Resolución de histórico
-========================= */
-type HistoryDict = Record<string, any[]>;
-
-const buildLooseIndex = (historyData: HistoryDict) => {
-  const index = new Map<string, string>();
-  for (const k of Object.keys(historyData || {})) {
-    index.set(String(k).toLowerCase(), k);
-  }
-  return index;
-};
-
-const pickHistory = (
-  sensor: any,
-  historyData: HistoryDict,
-  looseIndex: Map<string, string>
-) => {
-  const cands = [sensor?.devEUI, sensor?.name, sensor?.deviceName]
-    .map((x) => (x == null ? "" : String(x)))
-    .filter(Boolean);
-  for (const k of cands) if (historyData[k]) return historyData[k];
-  for (const k of cands) {
-    const real = looseIndex.get(k.toLowerCase());
-    if (real && historyData[real]) return historyData[real];
-  }
-  return [];
-};
-
-/* =========================
-   Subcomponentes pequeños
+   Subcomponentes
 ========================= */
 
 const StatusPill = ({
@@ -209,7 +180,7 @@ const SkeletonCard = () => (
 );
 
 /* =========================
-   Tarjeta
+   Tarjeta de cada sensor
 ========================= */
 interface SensorCardProps {
   room: Room;
@@ -229,8 +200,6 @@ const SensorCard: React.FC<SensorCardProps> = ({
   onClick,
 }) => {
   const name = (room as any).deviceName || room.name || "Sensor";
-
-  // Métricas solo si está conectado
   const temp = isConnected ? clampNum((room as any).temperature) : null;
   const hum = isConnected
     ? clampNum((room as any).humedity ?? (room as any).humidity)
@@ -256,19 +225,17 @@ const SensorCard: React.FC<SensorCardProps> = ({
     : { text: "text-gray-600", chip: "bg-gray-50 border-gray-200" };
 
   const accent = headerAccent(isConnected, temp, hum, thresholds);
-
   const devEui = (room as any).devEUI ?? "";
 
   return (
     <article
-      className="group text-left rounded-xl border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-default focus-visible:outline-none"
+      className="group text-left rounded-xl border border-gray-200 bg-white hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
       title={name}
     >
       {/* Barra superior */}
       <div className={`h-1.5 w-full rounded-t-xl ${accent}`} />
 
       <div className="p-3.5">
-        {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -284,7 +251,7 @@ const SensorCard: React.FC<SensorCardProps> = ({
 
             <p className="mt-1 text-[11px] text-gray-500 flex flex-wrap items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" />
-              <span className="text-gray-600">{formatAbs(lastSeen)}</span>
+              <span>{formatAbs(lastSeen)}</span>
               <span className="text-gray-400">· {formatRel(lastSeen)}</span>
             </p>
           </div>
@@ -315,13 +282,11 @@ const SensorCard: React.FC<SensorCardProps> = ({
             <div className="rounded-md border bg-white/60 p-1.5">
               <Thermometer className={`w-4 h-4 ${tTone.text}`} />
             </div>
-            <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wide text-gray-500">
-                Temp
-              </p>
-              <p className={`font-semibold leading-5 ${tTone.text}`}>
+            <div>
+              <p className="text-[10px] uppercase text-gray-500">Temp</p>
+              <p className={`font-semibold ${tTone.text}`}>
                 {isConnected && Number.isFinite(temp)
-                  ? `${(temp as number).toFixed(1)}°C`
+                  ? `${temp!.toFixed(1)}°C`
                   : "—"}
               </p>
             </div>
@@ -333,20 +298,18 @@ const SensorCard: React.FC<SensorCardProps> = ({
             <div className="rounded-md border bg-white/60 p-1.5">
               <Droplet className={`w-4 h-4 ${hTone.text}`} />
             </div>
-            <div className="min-w-0">
-              <p className="text-[10px] uppercase tracking-wide text-gray-500">
-                Humedad
-              </p>
-              <p className={`font-semibold leading-5 ${hTone.text}`}>
+            <div>
+              <p className="text-[10px] uppercase text-gray-500">Humedad</p>
+              <p className={`font-semibold ${hTone.text}`}>
                 {isConnected && Number.isFinite(hum)
-                  ? `${(hum as number).toFixed(1)}%`
+                  ? `${hum!.toFixed(1)}%`
                   : "—"}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Batería + devEUI */}
+        {/* Batería y devEUI */}
         <div className="mt-3 space-y-1.5">
           {battery != null && (
             <div className="flex items-center gap-2 text-xs text-gray-600">
@@ -363,9 +326,10 @@ const SensorCard: React.FC<SensorCardProps> = ({
                   style={{ width: `${battery}%` }}
                 />
               </div>
-              <span className="tabular-nums">{battery}%</span>
+              <span>{battery}%</span>
             </div>
           )}
+
           {devEui && (
             <div className="text-[11px] text-gray-400 truncate">
               {devEui}
@@ -373,15 +337,12 @@ const SensorCard: React.FC<SensorCardProps> = ({
           )}
         </div>
 
-        {/* Botón Ver detalle – único disparador */}
+        {/* Botón Ver detalle */}
         <div className="mt-3 flex justify-end">
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation(); // por si algún día la card tiene otro handler
-              onClick?.(room);
-            }}
-            className="inline-flex items-center gap-1.5 rounded-md bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 border border-green-100 hover:bg-green-600 hover:text-white hover:border-green-600 transition-colors"
+            onClick={() => onClick?.(room)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 border border-green-100 hover:bg-green-600 hover:text-white transition-colors"
           >
             Ver detalle
             <ArrowRight className="w-3.5 h-3.5" />
@@ -412,7 +373,13 @@ const SensorCards: React.FC<SensorCardsProps> = ({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const looseIndex = useMemo(
-    () => buildLooseIndex(historyData || {}),
+    () => {
+      const map = new Map<string, string>();
+      for (const k of Object.keys(historyData || {})) {
+        map.set(String(k).toLowerCase(), k);
+      }
+      return map;
+    },
     [historyData]
   );
 
@@ -423,38 +390,42 @@ const SensorCards: React.FC<SensorCardsProps> = ({
     const mapped = (rooms ?? []).map((r, i) => {
       const name =
         (r as any).deviceName || r.name || `Sensor ${i + 1}`;
-      const hist = pickHistory(r, historyData || {}, looseIndex);
+
+      const hist = (() => {
+        const cands = [r?.devEUI, r?.name, (r as any).deviceName].filter(Boolean);
+        for (const key of cands) {
+          if (historyData?.[key]) return historyData[key];
+        }
+        for (const key of cands) {
+          const real = looseIndex.get(String(key).toLowerCase());
+          if (real && historyData?.[real]) return historyData[real];
+        }
+        return [];
+      })();
+
       const conn = getSmartConnection(r, hist);
 
       const lastRaw =
-        (hist.length
-          ? (hist[hist.length - 1] as any).timestamp ??
-            (hist[hist.length - 1] as any).created_at ??
-            (hist[hist.length - 1] as any).updatedAt ??
-            (hist[hist.length - 1] as any).date
-          : (r as any).updatedAt ??
-            (r as any).lastSeen ??
-            (r as any).timestamp ??
-            (r as any).date) ?? null;
-
+        hist.length
+          ? (hist[hist.length - 1] as any).timestamp
+          : (r as any).updatedAt;
       const lastSeen = coerceDate(lastRaw);
       const lastMs = lastSeen ? lastSeen.getTime() : 0;
 
-      const isStale =
-        !!liveMs && !!lastMs ? now - lastMs > liveMs : false;
+      const isStale = liveMs ? now - lastMs > liveMs : false;
 
       const temp = clampNum((r as any).temperature);
       const hum = clampNum((r as any).humedity ?? (r as any).humidity);
 
       return {
         name,
-        status: conn.isConnected ? 1 : 0,
         updated: lastMs,
         temp: temp ?? -1e9,
         hum: hum ?? -1e9,
-        lastSeen,
+        status: conn.isConnected ? 1 : 0,
         isConnected: conn.isConnected,
         isStale,
+        lastSeen,
         room: r,
       };
     });
@@ -470,8 +441,7 @@ const SensorCards: React.FC<SensorCardsProps> = ({
     const sorted = [...filtered].sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
-      if (av === bv)
-        return a.name.localeCompare(b.name) * dir;
+      if (av === bv) return a.name.localeCompare(b.name) * dir;
       return av > bv ? dir : -dir;
     });
 
@@ -481,17 +451,22 @@ const SensorCards: React.FC<SensorCardsProps> = ({
     q,
     sortKey,
     sortDir,
-    historyData,
-    getSmartConnection,
-    looseIndex,
     liveWindowMin,
+    historyData,
+    looseIndex,
+    getSmartConnection,
   ]);
 
   const total = rooms?.length ?? 0;
 
   return (
     <section
-      className={`bg-white border border-gray-200 rounded-2xl p-4 ${className}`}
+      className={`
+        bg-white 
+        rounded-none p-0        /* FULL WIDTH móvil */
+        sm:rounded-2xl sm:p-4   /* diseño elegante desktop */
+        ${className}
+      `}
     >
       {showControls && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -501,70 +476,61 @@ const SensorCards: React.FC<SensorCardsProps> = ({
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Buscar sensor…"
-              className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+              className="w-full pl-8 pr-3 py-1.5 text-sm rounded-md border border-gray-300 focus:ring-2 focus:ring-blue-500/30"
             />
           </div>
 
-          <div className="flex items-center gap-3 text-xs sm:text-sm ml-auto">
+          <div className="flex items-center gap-2 ml-auto text-xs sm:text-sm">
             <span className="text-gray-500">
               {total} sensor{total === 1 ? "" : "es"}
             </span>
-            <div className="flex items-center gap-2">
-              <label className="text-gray-600">Orden</label>
-              <select
-                className="border border-gray-300 rounded-md py-1.5 px-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 bg-white"
-                value={`${sortKey}:${sortDir}`}
-                onChange={(e) => {
-                  const [k, d] = e.target.value.split(
-                    ":"
-                  ) as [SortKey, SortDir];
-                  setSortKey(k);
-                  setSortDir(d);
-                }}
-              >
-                <option value="status:desc">Conectados primero</option>
-                <option value="updated:desc">Más recientes</option>
-                <option value="updated:asc">Más antiguos</option>
-                <option value="temp:desc">Temp ↑</option>
-                <option value="temp:asc">Temp ↓</option>
-                <option value="hum:desc">Humedad ↑</option>
-                <option value="hum:asc">Humedad ↓</option>
-                <option value="name:asc">Nombre A–Z</option>
-                <option value="name:desc">Nombre Z–A</option>
-              </select>
-            </div>
+            <select
+              className="border border-gray-300 rounded-md py-1.5 px-2 bg-white focus:ring-2 focus:ring-blue-500/30"
+              value={`${sortKey}:${sortDir}`}
+              onChange={(e) => {
+                const [k, d] = e.target.value.split(":") as [SortKey, SortDir];
+                setSortKey(k);
+                setSortDir(d);
+              }}
+            >
+              <option value="status:desc">Conectados primero</option>
+              <option value="updated:desc">Más recientes</option>
+              <option value="updated:asc">Más antiguos</option>
+              <option value="temp:desc">Temp ↑</option>
+              <option value="temp:asc">Temp ↓</option>
+              <option value="hum:desc">Hum ↑</option>
+              <option value="hum:asc">Hum ↓</option>
+              <option value="name:asc">Nombre A–Z</option>
+              <option value="name:desc">Nombre Z–A</option>
+            </select>
           </div>
         </div>
       )}
 
       {loading ? (
         <div className="max-h-[520px] overflow-y-auto pr-1">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-            {Array.from({ length: 8 }).map((_, i) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 w-full gap-3 sm:gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
               <SkeletonCard key={i} />
             ))}
           </div>
         </div>
       ) : items.length === 0 ? (
-        <div className="py-8 text-center text-gray-500 text-sm">
-          No hay sensores para mostrar.
-        </div>
+        <div className="py-8 text-center text-gray-500">No hay sensores.</div>
       ) : (
         <div className="max-h-[520px] overflow-y-auto pr-1">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 w-full gap-3 sm:gap-4">
             {items.map((d, i) => {
-              const devEui = (d.room as any).devEUI as string | undefined;
-              const perSensor =
-                devEui && thresholdsByDevEui[devEui];
+              const devEui = (d.room as any).devEUI;
+              const perSensor = devEui && thresholdsByDevEui[devEui];
 
-              const fallback: Thresholds = globalFallback ?? {};
               const resolved: Thresholds = perSensor
                 ? {
                     temperature: perSensor.temperature,
                     humidity: perSensor.humidity,
                     tolerance: perSensor.tolerance ?? 2,
                   }
-                : fallback;
+                : globalFallback;
 
               return (
                 <SensorCard

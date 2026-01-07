@@ -1,24 +1,103 @@
-# Logs
-logs
+# -----------------------------------------------------
+# NODE / WEB
+# -----------------------------------------------------
+node_modules/
+dist/
+build/
+.next/
+out/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
+vite.config.ts.timestamp*
+.env
+.env.*
+!.env.example
 
-node_modules
-dist
-dist-ssr
-*.local
+# Editor configs
+.vscode/
+.idea/
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# Mac system files
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+*.swp
+
+# -----------------------------------------------------
+# CAPACITOR
+# -----------------------------------------------------
+# Plugins generated automatically
+capacitor.config.json.timestamp*
+
+# Web build copied into native folders
+android/app/src/main/assets/public/
+ios/App/App/public/
+
+# -----------------------------------------------------
+# ANDROID (Capacitor)
+# -----------------------------------------------------
+/android/.gradle/
+/android/local.properties
+/android/app/google-services.json
+/android/app/release/*.keystore
+/android/app/release/*.jks
+
+# Build outputs
+/android/app/build/
+/android/build/
+/android/.idea/
+/android/caches/
+/android/gradle/
+/android/.gradle/
+/android/.settings/
+
+# -----------------------------------------------------
+# IOS (Capacitor)
+# -----------------------------------------------------
+/ios/build/
+/ios/Pods/
+/ios/App/**/xcuserdata/
+/ios/App/**/xcshareddata/
+/ios/App/App.xcworkspace/
+/ios/App/*.xcworkspace
+DerivedData/
+
+# iOS signing files
+*.mobileprovision
+*.provisionprofile
+*.xcuserstate
+*.xcodeproj/project.xcworkspace/xcuserdata
+*.xcodeproj/xcuserdata
+
+# -----------------------------------------------------
+# CAPACITOR GENERATED ASSETS (optional)
+# -----------------------------------------------------
+# If you use capacitor-assets
+resources/icon.png
+resources/splash.png
+resources/**/icon-*
+resources/**/splash-*
+
+# -----------------------------------------------------
+# MISC
+# -----------------------------------------------------
+Thumbs.db
+
+# Capacitor
+android/
+ios/
+capacitor.config.ts
+capacitor.config.json
+
+# Android build
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# iOS
+*.xcworkspace
+*.xcodeproj
+DerivedData/
+

@@ -275,7 +275,6 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
     );
   };
 
-  // Empty state SOLO si NO está cargando
   if (!loading && !data?.length)
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 text-center text-gray-500 text-sm">
@@ -310,7 +309,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
 
   // Skeleton móvil
   const renderSkeletonMobile = () => (
-    <div className="sm:hidden divide-y divide-gray-100">
+    <div className="lg:hidden divide-y divide-gray-100">
       {Array.from({ length: Math.min(skeletonRows, 4) }).map((_, i) => (
         <div key={`skm-${i}`} className="p-4">
           <div className="flex items-start justify-between">
@@ -346,51 +345,65 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
       className={`bg-white rounded-xl shadow-md border border-gray-100 ${className}`}
     >
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-4 border-b bg-gray-50 rounded-t-xl">
-        <div className="flex items-center gap-3">
-          {title && (
-            <h3 className="font-semibold text-lg text-gray-800">{title}</h3>
-          )}
-          {loading && <div className="sm:hidden">{headerRightLoadingChip}</div>}
-        </div>
+        <div className="flex flex-col lg:flex-row lg:justify-between items-start lg:items-center gap-3 p-4 border-b bg-gray-50 rounded-t-xl">
+          
+          {/* IZQUIERDA */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto">
+            {title && (
+              <h3 className="font-semibold text-lg text-gray-800">
+                {title}
+              </h3>
+            )}
 
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <div className="relative flex-1 min-w-[140px]">
-            <MagnifyingGlassIcon className="absolute left-2 top-2.5 w-4 h-4 text-gray-400" />
-            <input
-              placeholder="Buscar…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              disabled={loading}
-              className="pl-7 pr-3 py-2 text-sm border border-gray-300 rounded-lg w-full focus:ring-1 focus:ring-blue-500 outline-none disabled:bg-gray-100"
-            />
+            {loading && (
+              <div className="lg:hidden">
+                {headerRightLoadingChip}
+              </div>
+            )}
           </div>
 
-          <div className="relative flex-1 min-w-[140px]">
-            <FunnelIcon className="absolute left-2 top-2.5 w-4 h-4 text-gray-400" />
-            <select
-              value={filterKey}
-              onChange={(e) => setFilterKey(e.target.value)}
-              disabled={loading}
-              className="pl-7 pr-6 py-2 text-sm border border-gray-300 rounded-lg w-full focus:ring-1 focus:ring-blue-500 outline-none bg-white disabled:bg-gray-100"
-            >
-              <option value="">Filtrar por…</option>
-              {columns.map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* DERECHA */}
+          <div className="flex flex-col lg:flex-row items-start lg:items-center gap-2 w-full lg:w-auto">
+            
+            <div className="relative w-full lg:min-w-[180px]">
+              <MagnifyingGlassIcon className="absolute left-2 top-2.5 w-4 h-4 text-gray-400" />
+              <input
+                placeholder="Buscar…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                disabled={loading}
+                className="pl-7 pr-3 py-2 text-sm border border-gray-300 rounded-lg w-full focus:ring-1 focus:ring-blue-500 outline-none disabled:bg-gray-100"
+              />
+            </div>
 
-          {loading && (
-            <div className="hidden sm:block">{headerRightLoadingChip}</div>
-          )}
+            <div className="relative w-full lg:min-w-[160px]">
+              <FunnelIcon className="absolute left-2 top-2.5 w-4 h-4 text-gray-400" />
+              <select
+                value={filterKey}
+                onChange={(e) => setFilterKey(e.target.value)}
+                disabled={loading}
+                className="pl-7 pr-6 py-2 text-sm border border-gray-300 rounded-lg w-full focus:ring-1 focus:ring-blue-500 outline-none bg-white disabled:bg-gray-100"
+              >
+                <option value="">Filtrar por…</option>
+                {columns.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {loading && (
+              <div className="hidden lg:block">
+                {headerRightLoadingChip}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+
 
       {/* Contenedor de tabla desktop */}
-      <div className="hidden sm:block overflow-x-auto w-full overflow-y-visible rounded-b-xl">
+      <div className="hidden lg:block overflow-x-auto w-full overflow-y-visible rounded-b-xl">
         <table
           className="min-w-full text-sm text-gray-800"
           {...tableProps}
@@ -540,7 +553,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
       {loading ? (
         renderSkeletonMobile()
       ) : (
-        <div className="sm:hidden divide-y divide-gray-100 rounded-b-xl">
+        <div className="lg:hidden divide-y divide-gray-100 rounded-b-xl">
           {pageData.map((row, i) => {
             const idx = (currentPage - 1) * rowsPerPage + i;
             const isOpen = !!expanded[idx];
@@ -622,7 +635,7 @@ const ResponsiveTable: React.FC<ResponsiveTableProps> = ({
       {menuAnchor && <ActionMenu />}
 
       {/* Footer */}
-      <div className="flex flex-col sm:flex-row justify-between items-center px-4 py-3 border-t bg-gray-50 text-sm text-gray-600 gap-3 rounded-b-xl">
+      <div className="flex flex-col lg:flex-row justify-between items-center px-4 py-3 border-t bg-gray-50 text-sm text-gray-600 gap-3 rounded-b-xl">
         <div className="flex items-center gap-2">
           {showExport && (
             <button

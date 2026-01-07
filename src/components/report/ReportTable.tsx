@@ -112,7 +112,7 @@ const ReportTable: React.FC<ReportTableProps> = ({
       loadingMessage="Cargando tabla…"
       skeletonRows={8}
       headerProps={{
-        className: "", // el sticky ya lo maneja el componente
+        className: "",
       }}
       columns={[
         {
