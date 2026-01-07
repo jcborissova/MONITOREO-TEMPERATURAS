@@ -1,11 +1,16 @@
+# ============================
+# API PROXY (DEBE IR PRIMERO)
+# ============================
 [[redirects]]
-  from = "/api/*"
-  to = "http://155.138.193.120:8080/:splat"
-  status = 200
-  force = true
+from = "/api/*"
+to = "http://155.138.193.120:8080/:splat"
+status = 200
+force = true
 
-# Para apps SPA (React Router)
+# ============================
+# SPA FALLBACK (DESPUÉS)
+# ============================
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+from = "/*"
+to = "/index.html"
+status = 200

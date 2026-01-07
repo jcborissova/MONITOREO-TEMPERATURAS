@@ -1,4 +1,3 @@
-// vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import svgr from "vite-plugin-svgr";
@@ -21,11 +20,7 @@ export default defineConfig({
     }),
   ],
 
-  // 🔥 IMPORTANTE PARA iOS/Android (Capacitor)
-  base: "",
-
   server: {
-    host: true,             // permite acceso desde iPhone/Android
     port: 5173,
     proxy: {
       "/api": {
